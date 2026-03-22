@@ -15,5 +15,9 @@ typedef struct {
 void Tex_Init();
 void Tex_BindAtlas();
 const TexRegion* Tex_GetRegion(int texID);
+void Tex_Switch(int packIndex);  // switch to a different resource pack at runtime
+int  Tex_GetPackCount();
+const char* Tex_GetPackName(int index);
+int  Tex_GetCurrentPack();
 
 #endif

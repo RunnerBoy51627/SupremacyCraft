@@ -136,54 +136,6 @@ void GUI_DrawCrosshair(GXRModeObj* rmode) {
 // ─── Block icon renderer ─────────────────────────────────────────────────────
 // Draws a fake isometric block using 3 colored rects (top, left face, right face)
 
-static void get_block_colors(u8 block,
-    u8* tr, u8* tg, u8* tb,   // top face
-    u8* lr, u8* lg, u8* lb,   // left face
-    u8* rr, u8* rg, u8* rb)   // right face
-{
-    switch(block) {
-        case BLOCK_GRASS:
-            *tr=106; *tg=178; *tb=80;   // green top
-            *lr=100; *lg=70;  *lb=40;   // dirt left (darker)
-            *rr=120; *rg=85;  *rb=50;   // dirt right
-            break;
-        case BLOCK_DIRT:
-            *tr=134; *tg=96;  *tb=67;
-            *lr=100; *lg=70;  *lb=45;
-            *rr=120; *rg=85;  *rb=55;
-            break;
-        case BLOCK_STONE:
-            *tr=128; *tg=128; *tb=128;
-            *lr=90;  *lg=90;  *lb=90;
-            *rr=110; *rg=110; *rb=110;
-            break;
-        case BLOCK_WOOD:
-            *tr=160; *tg=130; *tb=80;
-            *lr=100; *lg=65;  *lb=30;
-            *rr=120; *rg=80;  *rb=40;
-            break;
-        case BLOCK_LEAF:
-            *tr=50;  *tg=120; *tb=35;
-            *lr=35;  *lg=90;  *lb=25;
-            *rr=42;  *rg=105; *rb=30;
-            break;
-        case 9: // TNT — red top, dark red sides
-            *tr=180;*tg=60;*tb=60;
-            *lr=160;*lg=25;*lb=25;
-            *rr=200;*rg=30;*rb=30;
-            break;
-        case 10: // Flint & Steel — grey metallic
-            *tr=160;*tg=160;*tb=165;
-            *lr=120;*lg=120;*lb=125;
-            *rr=140;*rg=140;*rb=145;
-            break;
-        default:
-            *tr=*tg=*tb=180;
-            *lr=*lg=*lb=120;
-            *rr=*rg=*rb=150;
-    }
-}
-
 static void draw_block_icon(float x, float y, float size, u8 block) {
     // Tool/item: flat sprite icon
     if (block == BLOCK_FLINT_STEEL) {
@@ -356,9 +308,12 @@ void GUI_DrawHealth(GXRModeObj* rmode, GUIState* gui) {
     int hearts     = 10;
     float heartSize = 14.0f;
     float gap      = 3.0f;
-    float totalW   = hearts * (heartSize + gap) - gap;
-    float startX   = (SW() - totalW) / 2.0f;
-    float startY   = SH() - 72.0f; // above hotbar
+    // Align left edge with hotbar left edge
+    float slotSize  = 40.0f;
+    float slotGap   = 4.0f;
+    float hotbarW   = HOTBAR_SLOTS * slotSize + (HOTBAR_SLOTS - 1) * slotGap;
+    float startX    = (SW() - hotbarW) / 2.0f;
+    float startY    = SH() - 72.0f; // above hotbar
 
     // Shadow pass
     for (int i = 0; i < hearts; i++) {
@@ -553,7 +508,7 @@ void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui) {
 
     draw_rect(0, 0, (int)SW(), (int)SH(), 0, 0, 0, 160);
 
-    float panelW = 260.0f, panelH = 240.0f;
+    float panelW = 260.0f, panelH = 270.0f;
     float panelX = (SW() - panelW) / 2.0f;
     float panelY = (SH() - panelH) / 2.0f;
 
@@ -617,6 +572,24 @@ void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui) {
             float vw = __builtin_strlen(valbuf) * 6.0f * scale;
             draw_string(panelX + panelW - vw - 16.0f, itemY, scale, valbuf, tr, tg, tb);
         }
+    }
+
+    // Resource pack selector
+    {
+        int i = SETTING_ITEM_RESOURCE_PACK;
+        float itemY = panelY + 56.0f + i * 34.0f;
+        float scale = 1.5f;
+        u8 tr2 = (i == gui->settingsCursor) ? 255 : 180;
+        u8 tg2 = (i == gui->settingsCursor) ? 255 : 180;
+        u8 tb2 = (i == gui->settingsCursor) ? 100 : 180;
+        if (i == gui->settingsCursor)
+            draw_rect(panelX+8, itemY-4, panelW-16, 7*scale+18, 80,80,180,160);
+        draw_string(panelX + 16.0f, itemY, scale, "RESOURCE PACK", tr2, tg2, tb2);
+        const char* packName = Tex_GetPackName(Tex_GetCurrentPack());
+        float vw = __builtin_strlen(packName) * 6.0f * scale;
+        draw_string(panelX + panelW - vw - 16.0f, itemY, scale, packName, tr2, tg2, tb2);
+        // Left/right arrows hint
+        draw_string(panelX + 16.0f, itemY + 12.0f, 1.2f, "< >", 120, 120, 120);
     }
 
     // Back hint

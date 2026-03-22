@@ -20,11 +20,21 @@ ATLAS_H   := include/atlas_regions.h
 ATLAS_SRC := $(filter-out $(ATLAS),$(wildcard data/textures/*.png))
 
 # ── Atlas generation ─────────────────────────────────────────────────────────
-.PHONY: all clean hbc
+.PHONY: all clean hbc pack
+
+# Switch resource pack: make pack PACK=mypack
+pack:
+	@python3 tools/gen_atlas.py --set $(PACK)
+	@echo "Run make to rebuild with the new pack"
+
+# List available packs
+packs:
+	@python3 tools/gen_atlas.py --list
+
 
 gen_atlas: $(ATLAS_SRC)
 	@echo "Generating texture atlas..."
-	@python3 tools/gen_atlas.py
+	@python3 tools/gen_atlas.py $(if $(PACK),--pack $(PACK))
 
 $(ATLAS_H): gen_atlas
 
@@ -70,7 +80,7 @@ all: $(ATLAS_H) $(BUILD)/$(TARGET)
 $(ATLAS_C): $(ATLAS_H)
 	@mkdir -p $(BUILD)/data
 	@echo "Embedding atlas (PC)..."
-	@python3 tools/bin2cpp.py $(ATLAS) $(ATLAS_C) atlas_png
+	@python3 tools/embed_packs.py $(BUILD)/data
 
 $(ATLAS_OBJ): $(ATLAS_C)
 	$(CXX) -c $(ATLAS_C) -o $(ATLAS_OBJ)
@@ -109,16 +119,22 @@ WII_LIBS := $(if $(wildcard $(LIBOGC)/lib/wii/libwiiuse.a),-lwiiuse -lbte)
 LDFLAGS  := -L$(LIBOGC)/lib/wii -L$(LIBOGC)/lib/cube -L$(PORTLIBS)/lib \
             $(WII_LIBS) -lasnd -logc -lpng -lz -lm
 
-ATLAS_OBJ := $(BUILD)/data/textures/atlas.png.o
 ELF       := $(BUILD)/$(TARGET).elf
 DOL       := $(BUILD)/$(TARGET).dol
+# Pack objects built by embed_packs_gc.py
+PACK_OBJS := $(wildcard $(BUILD)/data/packs/*.o)
 
-# Sound raw PCM files (convert from MP3 first using ffmpeg)
+# Sound raw PCM files
 SOUND_RAWS := $(wildcard data/sounds/*.raw)
 SOUND_OBJS := $(patsubst data/sounds/%.raw,$(BUILD)/data/sounds/%.raw.o,$(SOUND_RAWS))
 
-all: $(ATLAS_H) $(DOL)
+all: $(ATLAS_H) include/atlas_packs.h $(DOL)
 	@echo "GC build complete: $(DOL)"
+
+include/atlas_packs.h: $(ATLAS_H)
+	@mkdir -p $(BUILD)/data/packs
+	@echo "Generating atlas_packs.h..."
+	@python3 tools/embed_packs_gc.py $(BUILD)/data $(BIN2S) $(AS)
 
 # Convert sounds then re-invoke make so SOUND_RAWS wildcard picks up new .raw files
 .PHONY: convert_sounds
@@ -131,16 +147,11 @@ $(DOL): $(ELF)
 	$(ELF2DOL) $(ELF) $(DOL)
 	@echo "Done: $@"
 
-$(ELF): $(SOURCES) $(ATLAS_OBJ) $(SOUND_OBJS)
+$(ELF): $(SOURCES) $(SOUND_OBJS)
 	@mkdir -p $(BUILD)
 	@echo "Compiling GC..."
-	$(CXX) $(CXXFLAGS) $(SOURCES) $(ATLAS_OBJ) $(SOUND_OBJS) -o $(ELF) $(LDFLAGS)
-
-$(ATLAS_OBJ): $(ATLAS) $(ATLAS_H)
-	@mkdir -p $(dir $@)
-	@echo "Embedding atlas..."
-	$(BIN2S) $(ATLAS) > $(BUILD)/data/textures/atlas.png.s
-	$(AS) $(BUILD)/data/textures/atlas.png.s -o $(ATLAS_OBJ)
+	$(eval PACK_OBJS := $(wildcard $(BUILD)/data/packs/*.o))
+	$(CXX) $(CXXFLAGS) $(SOURCES) $(PACK_OBJS) $(SOUND_OBJS) -o $(ELF) $(LDFLAGS)
 
 $(BUILD)/data/sounds/%.raw.o: data/sounds/%.raw
 	@mkdir -p $(dir $@)

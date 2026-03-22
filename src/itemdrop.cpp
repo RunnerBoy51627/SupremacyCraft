@@ -19,30 +19,6 @@ static float frand() {
 }
 
 // ── Block face colors (top / front / right) ───────────────────────────────────
-static void get_drop_colors(u8 block,
-    u8* tr, u8* tg, u8* tb,
-    u8* fr, u8* fg, u8* fb,
-    u8* rr, u8* rg, u8* rb)
-{
-    switch (block) {
-        case 1: // GRASS
-            *tr=106;*tg=178;*tb=80;  *fr=100;*fg=70; *fb=40;  *rr=115;*rg=80; *rb=48; break;
-        case 2: // DIRT
-            *tr=134;*tg=96; *tb=67;  *fr=110;*fg=75; *fb=50;  *rr=125;*rg=88; *rb=58; break;
-        case 3: // STONE
-            *tr=128;*tg=128;*tb=128; *fr=100;*fg=100;*fb=100; *rr=115;*rg=115;*rb=115; break;
-        case 4: // WOOD
-            *tr=160;*tg=130;*tb=80;  *fr=120;*fg=85; *fb=45;  *rr=140;*rg=100;*rb=55; break;
-        case 5: // LEAF
-            *tr=50; *tg=120;*tb=35;  *fr=38; *fg=95; *fb=28;  *rr=44; *rg=108;*rb=32; break;
-        case 9: // TNT
-            *tr=180;*tg=60;*tb=60; *fr=200;*fg=30;*fb=30; *rr=160;*rg=25;*rb=25; break;
-        default:
-            *tr=*tg=*tb=180; *fr=*fg=*fb=140; *rr=*rg=*rb=160; break;
-    }
-}
-
-// ── Draw a small colored cube at origin in world space ────────────────────────
 static void draw_drop_cube_textured(float s, u8 block)
 {
     float h = s * 0.5f;

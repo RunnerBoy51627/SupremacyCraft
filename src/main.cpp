@@ -210,6 +210,14 @@ int main(int argc, char **argv) {
                                 GUI_UpdateScreenSize(rmode);
                             }
                             break;
+                        case SETTING_ITEM_RESOURCE_PACK: {
+                            int cur = Tex_GetCurrentPack();
+                            int cnt = Tex_GetPackCount();
+                            if (step > 0) cur = (cur + 1) % cnt;
+                            else if (step < 0) cur = (cur - 1 + cnt) % cnt;
+                            Tex_Switch(cur);
+                            break;
+                        }
                     }
                 }
                 // B = back to pause menu

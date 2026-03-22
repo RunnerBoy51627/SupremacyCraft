@@ -32,7 +32,8 @@
 #define SETTING_ITEM_SENSITIVITY 2
 #define SETTING_ITEM_MOVE_SPEED  3
 #define SETTING_ITEM_WIDESCREEN  4
-#define SETTING_ITEM_COUNT       5
+#define SETTING_ITEM_RESOURCE_PACK 5
+#define SETTING_ITEM_COUNT       6
 
 typedef struct {
     int selectedSlot;       // hotbar selected slot (0-8)

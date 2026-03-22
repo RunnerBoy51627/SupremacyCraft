@@ -1,0 +1,6 @@
+{
+    "name": "test",
+    "description": "test pack",
+    "tile_size": 64,
+    "author": "Martin Otten"
+}
