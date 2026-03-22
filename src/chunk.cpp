@@ -50,7 +50,7 @@ static u8 get_block(Chunk* c, int x, int y, int z,
 // ── Texture lookup ────────────────────────────────────────────────────────────
 // Face indices: 0=top 1=bottom 2=north(-Z) 3=south(+Z) 4=west(-X) 5=east(+X)
 
-static int block_face_tex(u8 block, int face) {
+int block_face_tex_pub(u8 block, int face) {
     switch ((BlockType)block) {
         case BLOCK_GRASS:
             if (face == 0) return TEX_GRASS_TOP;   // green top
@@ -212,7 +212,7 @@ void Chunk_BuildMesh(Chunk* chunk,
 
         // Get UV region for each face
         #define UV(face) \
-            const TexRegion* _r = Tex_GetRegion(block_face_tex(block, face));
+            const TexRegion* _r = Tex_GetRegion(block_face_tex_pub(block, face));
 
         // Top face (+Y) — only if block above is air
         if (get_block(chunk, x, y+1, z, nXN,nXP,nZN,nZP) == BLOCK_AIR) {

@@ -141,6 +141,7 @@ def main():
         'tnt_side.png',
         'tnt_top.png',
         'tnt_bottom.png',
+        'flint_steel.png',
     ]
 
     # Start with fixed-order files that exist, then append any extras alphabetically

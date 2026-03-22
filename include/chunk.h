@@ -53,6 +53,7 @@ void Chunk_Render(Chunk* chunk);
 
 // Block accessors
 u8   Chunk_GetBlock(Chunk* chunk, int x, int y, int z);
+int  block_face_tex_pub(u8 block, int face); // returns TEX_* id for a block face
 bool Chunk_SetBlock(Chunk* chunk, int x, int y, int z, u8 block);
 
 #endif

@@ -29,6 +29,7 @@ typedef struct {
     int      health;          // 0-20
     int      air;             // frames of air remaining (300 = full)
     int      invincible;      // invincibility frames after taking damage
+    int      hurtTimer;       // counts down from 10 on damage for tilt/flash
     float    fall_speed_peak; // track peak downward velocity for fall damage
 
     // Respawn

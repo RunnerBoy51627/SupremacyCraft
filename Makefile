@@ -113,23 +113,40 @@ ATLAS_OBJ := $(BUILD)/data/textures/atlas.png.o
 ELF       := $(BUILD)/$(TARGET).elf
 DOL       := $(BUILD)/$(TARGET).dol
 
+# Sound raw PCM files (convert from MP3 first using ffmpeg)
+SOUND_RAWS := $(wildcard data/sounds/*.raw)
+SOUND_OBJS := $(patsubst data/sounds/%.raw,$(BUILD)/data/sounds/%.raw.o,$(SOUND_RAWS))
+
 all: $(ATLAS_H) $(DOL)
+	@echo "GC build complete: $(DOL)"
+
+# Convert sounds then re-invoke make so SOUND_RAWS wildcard picks up new .raw files
+.PHONY: convert_sounds
+convert_sounds:
+	@python3 tools/sound2raw.py
+	@$(MAKE) --no-print-directory
 
 $(DOL): $(ELF)
 	@echo "Converting to DOL..."
 	$(ELF2DOL) $(ELF) $(DOL)
 	@echo "Done: $@"
 
-$(ELF): $(SOURCES) $(ATLAS_OBJ)
+$(ELF): $(SOURCES) $(ATLAS_OBJ) $(SOUND_OBJS)
 	@mkdir -p $(BUILD)
 	@echo "Compiling GC..."
-	$(CXX) $(CXXFLAGS) $(SOURCES) $(ATLAS_OBJ) -o $(ELF) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(SOURCES) $(ATLAS_OBJ) $(SOUND_OBJS) -o $(ELF) $(LDFLAGS)
 
 $(ATLAS_OBJ): $(ATLAS) $(ATLAS_H)
 	@mkdir -p $(dir $@)
 	@echo "Embedding atlas..."
 	$(BIN2S) $(ATLAS) > $(BUILD)/data/textures/atlas.png.s
 	$(AS) $(BUILD)/data/textures/atlas.png.s -o $(ATLAS_OBJ)
+
+$(BUILD)/data/sounds/%.raw.o: data/sounds/%.raw
+	@mkdir -p $(dir $@)
+	@echo "Embedding sound $<..."
+	cd data/sounds && $(BIN2S) $*.raw > $(abspath $(BUILD)/data/sounds/$*.raw.s)
+	$(AS) $(BUILD)/data/sounds/$*.raw.s -o $@
 
 endif
 # ═════════════════════════════════════════════════════════════════════════════

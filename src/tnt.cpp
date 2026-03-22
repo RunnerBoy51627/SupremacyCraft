@@ -15,17 +15,23 @@ void TNT_Init(void) {
 }
 
 int TNT_Ignite(World* world, int wx, int wy, int wz) {
+    return TNT_IgniteDelayed(world, wx, wy, wz, 0);
+}
+
+int TNT_IgniteDelayed(World* world, int wx, int wy, int wz, int extra_fuse) {
     if (World_GetBlock(world, wx, wy, wz) != BLOCK_TNT) return 0;
-    // Find free slot
+    // Check not already lit
+    for (int i = 0; i < MAX_TNT; i++)
+        if (s_tnt[i].active && s_tnt[i].wx==wx && s_tnt[i].wy==wy && s_tnt[i].wz==wz)
+            return 0; // already lit
     for (int i = 0; i < MAX_TNT; i++) {
         if (s_tnt[i].active) continue;
-        // Remove block from world, replace with air
         World_SetBlock(world, wx, wy, wz, BLOCK_AIR);
         s_tnt[i].active = 1;
         s_tnt[i].wx     = wx;
         s_tnt[i].wy     = wy;
         s_tnt[i].wz     = wz;
-        s_tnt[i].fuse   = TNT_FUSE;
+        s_tnt[i].fuse   = TNT_FUSE + extra_fuse;
         s_tnt[i].flash  = 0.0f;
         return 1;
     }
@@ -35,15 +41,18 @@ int TNT_Ignite(World* world, int wx, int wy, int wz) {
 static void explode(World* world, Player* player, int cx, int cy, int cz) {
     Sound_Play(SFX_EXPLODE);
 
-    // Pass 1: chain reaction
+    // Pass 1: chain reaction — stagger fuses by distance so explosions spread out
     for (int dx = -TNT_RADIUS; dx <= TNT_RADIUS; dx++)
     for (int dy = -TNT_RADIUS; dy <= TNT_RADIUS; dy++)
     for (int dz = -TNT_RADIUS; dz <= TNT_RADIUS; dz++) {
         float dist = sqrtf((float)(dx*dx + dy*dy + dz*dz));
         if (dist > TNT_RADIUS) continue;
         int bx = cx+dx, by = cy+dy, bz = cz+dz;
-        if (World_GetBlock(world, bx, by, bz) == BLOCK_TNT)
-            TNT_Ignite(world, bx, by, bz);
+        if (World_GetBlock(world, bx, by, bz) == BLOCK_TNT) {
+            // Delay = 20 frames per unit of distance (~0.33s between each)
+            int delay = (int)(dist * 20.0f);
+            TNT_IgniteDelayed(world, bx, by, bz, delay);
+        }
     }
 
     // Pass 2: destroy blocks

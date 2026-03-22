@@ -1,4 +1,5 @@
 #include "player.h"
+#include "utils.h"
 #include "sound.h"
 #include "utils.h"
 #include "chunk.h"
@@ -47,6 +48,7 @@ void Player_Init(Player* player) {
     player->health       = PLAYER_MAX_HEALTH;
     player->air          = PLAYER_MAX_AIR;
     player->invincible   = 0;
+    player->hurtTimer    = 0;
     player->fall_speed_peak = 0.0f;
     player->dead         = 0;
 }
@@ -77,6 +79,7 @@ void Player_Damage(Player* player, int amount) {
     player->health -= amount;
     if (player->health < 0) player->health = 0;
     player->invincible = 30;
+    player->hurtTimer  = 10;
     Sound_Play(SFX_PLAYER_HIT);
 }
 
@@ -98,6 +101,7 @@ void Player_Update(Player* player, World* world,
         return;
     }
     if (player->invincible > 0) player->invincible--;
+    if (player->hurtTimer  > 0) player->hurtTimer--;
 
     // 1. Compute movement direction from analog stick + camera yaw
     float moveX = 0.0f, moveZ = 0.0f;
@@ -116,8 +120,8 @@ void Player_Update(Player* player, World* world,
         if (sy > -0.12f && sy < 0.12f) sy = 0.0f;
         if (sx > -0.12f && sx < 0.12f) sx = 0.0f;
 
-        moveX = (fwdX * sy + rightX * sx) * MOVE_SPEED;
-        moveZ = (fwdZ * sy + rightZ * sx) * MOVE_SPEED;
+        moveX = (fwdX * sy + rightX * sx) * g_config.moveSpeed;
+        moveZ = (fwdZ * sy + rightZ * sx) * g_config.moveSpeed;
     }
 
     // 2. Jumping

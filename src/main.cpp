@@ -22,6 +22,7 @@
 #include "input.h"
 #include "sound.h"
 #include "crash_handler.h"
+#include <math.h>
 #include "tnt.h"
 
 #define FIFO_SIZE (512 * 1024)   // 512KB FIFO
@@ -141,7 +142,7 @@ int main(int argc, char **argv) {
         if (down & PAD_BUTTON_START)
             gui.paused = !gui.paused;
         // X opens/closes inventory (drop held item back on close)
-        if (down & PAD_BUTTON_X) {
+        if ((down & PAD_BUTTON_X) && !gui.paused) {
             if (gui.inventoryOpen) {
                 // Drop held item back to first free slot
                 if (gui.heldItemCount > 0) {
@@ -170,21 +171,72 @@ int main(int argc, char **argv) {
 
         // ── Pause menu input ─────────────────────────────────────────────
         if (gui.paused) {
-            if (down & PAD_BUTTON_UP)
-                gui.pauseCursor = (gui.pauseCursor - 1 + PAUSE_ITEM_COUNT) % PAUSE_ITEM_COUNT;
-            if (down & PAD_BUTTON_DOWN)
-                gui.pauseCursor = (gui.pauseCursor + 1) % PAUSE_ITEM_COUNT;
-            if (down & PAD_BUTTON_A) {
-                switch (gui.pauseCursor) {
-                    case PAUSE_ITEM_RESUME:
-                        gui.paused = 0;
-                        break;
-                    case PAUSE_ITEM_RESPAWN:
-                        Player_Respawn(&myPlayer, &myWorld);
-                        gui.paused = 0;
-                        break;
-                    case PAUSE_ITEM_QUIT:
-                        goto game_exit;
+            if (gui.inSettings) {
+                // ── Settings navigation ──────────────────────────────────────
+                if (down & PAD_BUTTON_UP)
+                    gui.settingsCursor = (gui.settingsCursor - 1 + SETTING_ITEM_COUNT) % SETTING_ITEM_COUNT;
+                if (down & PAD_BUTTON_DOWN)
+                    gui.settingsCursor = (gui.settingsCursor + 1) % SETTING_ITEM_COUNT;
+                // Left/Right adjusts value
+                float step = 0.0f;
+                if (down & PAD_BUTTON_LEFT)  step = -1.0f;
+                if (down & PAD_BUTTON_RIGHT) step =  1.0f;
+                if (step != 0.0f) {
+                    switch (gui.settingsCursor) {
+                        case SETTING_ITEM_FOG_START:
+                            g_config.fogStart += step * 5.0f;
+                            if (g_config.fogStart < 5.0f)  g_config.fogStart = 5.0f;
+                            if (g_config.fogStart > 60.0f) g_config.fogStart = 60.0f;
+                            Config_ApplyFog(); break;
+                        case SETTING_ITEM_FOG_END:
+                            g_config.fogEnd += step * 5.0f;
+                            if (g_config.fogEnd < 10.0f)  g_config.fogEnd = 10.0f;
+                            if (g_config.fogEnd > 120.0f) g_config.fogEnd = 120.0f;
+                            Config_ApplyFog(); break;
+                        case SETTING_ITEM_SENSITIVITY:
+                            g_config.sensitivity += step * 0.5f;
+                            if (g_config.sensitivity < 0.5f) g_config.sensitivity = 0.5f;
+                            if (g_config.sensitivity > 8.0f) g_config.sensitivity = 8.0f;
+                            break;
+                        case SETTING_ITEM_MOVE_SPEED:
+                            g_config.moveSpeed += step * 0.01f;
+                            if (g_config.moveSpeed < 0.05f) g_config.moveSpeed = 0.05f;
+                            if (g_config.moveSpeed > 0.30f) g_config.moveSpeed = 0.30f;
+                            break;
+                        case SETTING_ITEM_WIDESCREEN:
+                            if (step != 0.0f) {
+                                g_config.widescreen = !g_config.widescreen;
+                                Config_ApplyDisplay(rmode);
+                                GUI_UpdateScreenSize(rmode);
+                            }
+                            break;
+                    }
+                }
+                // B = back to pause menu
+                if (down & PAD_BUTTON_B) gui.inSettings = 0;
+            } else {
+                // ── Pause menu navigation ────────────────────────────────────
+                if (down & PAD_BUTTON_UP)
+                    gui.pauseCursor = (gui.pauseCursor - 1 + PAUSE_ITEM_COUNT) % PAUSE_ITEM_COUNT;
+                if (down & PAD_BUTTON_DOWN)
+                    gui.pauseCursor = (gui.pauseCursor + 1) % PAUSE_ITEM_COUNT;
+                if (down & PAD_BUTTON_A) {
+                    switch (gui.pauseCursor) {
+                        case PAUSE_ITEM_RESUME:
+                            gui.paused = 0;
+                            gui.inSettings = 0;
+                            break;
+                        case PAUSE_ITEM_SETTINGS:
+                            gui.inSettings = 1;
+                            gui.settingsCursor = 0;
+                            break;
+                        case PAUSE_ITEM_RESPAWN:
+                            Player_Respawn(&myPlayer, &myWorld);
+                            gui.paused = 0;
+                            break;
+                        case PAUSE_ITEM_QUIT:
+                            goto game_exit;
+                    }
                 }
             }
             jump = 0; // prevent A press from menu carrying into gameplay
@@ -411,6 +463,14 @@ int main(int argc, char **argv) {
         // ── 3D World ────────────────────────────────────────────────────────
         GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
         GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
+        // Damage tilt — roll camera slightly when hurt
+        if (myPlayer.hurtTimer > 0) {
+            float t = (float)myPlayer.hurtTimer / 10.0f;
+            float tilt = sinf(t * 3.14159f) * 8.0f; // peak 8 degrees
+            myCam.roll = tilt;
+        } else {
+            myCam.roll = 0.0f;
+        }
         Camera_Apply(&myCam);
         World_Render(&myWorld);
 
@@ -543,6 +603,13 @@ int main(int argc, char **argv) {
 
         GUI_Begin2D(rmode);
 
+        // Damage flash — red vignette when hurt
+        if (myPlayer.hurtTimer > 0 && !myPlayer.dead) {
+            float t = (float)myPlayer.hurtTimer / 10.0f;
+            u8 alpha = (u8)(t * 160.0f);
+            GUI_DrawRect(0, 0, g_config.widescreen ? 854 : 640, 480, 180, 0, 0, alpha);
+        }
+
         // Death screen overlay
         if (myPlayer.dead) {
             // Dark red overlay
@@ -562,7 +629,10 @@ int main(int argc, char **argv) {
         TNT_Render();
         GUI_DrawScore(rmode, &gui);
         GUI_DrawCrosshair(rmode);
-        if (gui.paused) GUI_DrawPauseMenu(rmode, &gui);
+        if (gui.paused) {
+            if (gui.inSettings) GUI_DrawSettings(rmode, &gui);
+            else                GUI_DrawPauseMenu(rmode, &gui);
+        }
         if (gui.inventoryOpen) GUI_DrawInventory(rmode, &gui);
         GUI_DrawHotbar(rmode, &gui);
         GUI_DrawHealth(rmode, &gui);

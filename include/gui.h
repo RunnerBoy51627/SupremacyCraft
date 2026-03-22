@@ -19,11 +19,20 @@
   #define SCREEN_H 480
 #endif
 
-// Pause menu
-#define PAUSE_ITEM_RESUME  0
-#define PAUSE_ITEM_RESPAWN 1
-#define PAUSE_ITEM_QUIT    2
-#define PAUSE_ITEM_COUNT   3
+// Pause menu items
+#define PAUSE_ITEM_RESUME   0
+#define PAUSE_ITEM_SETTINGS 1
+#define PAUSE_ITEM_RESPAWN  2
+#define PAUSE_ITEM_QUIT     3
+#define PAUSE_ITEM_COUNT    4
+
+// Settings menu items
+#define SETTING_ITEM_FOG_START   0
+#define SETTING_ITEM_FOG_END     1
+#define SETTING_ITEM_SENSITIVITY 2
+#define SETTING_ITEM_MOVE_SPEED  3
+#define SETTING_ITEM_WIDESCREEN  4
+#define SETTING_ITEM_COUNT       5
 
 typedef struct {
     int selectedSlot;       // hotbar selected slot (0-8)
@@ -31,6 +40,8 @@ typedef struct {
     int maxHealth;
     int paused;
     int pauseCursor;
+    int inSettings;     // 1 = settings submenu open
+    int settingsCursor; // which setting is selected
 
     // Full inventory: slots 0-8 = hotbar, slots 9-35 = main inventory
     u8  slotBlock[INV_SLOTS];
@@ -65,7 +76,9 @@ void GUI_DrawDebug(GXRModeObj* rmode, float x, float y, float z, int fps);
 void GUI_DrawRect(int x, int y, int w, int h, u8 r, u8 g, u8 b, u8 a);
 void GUI_DrawString(float x, float y, float scale, const char* str, u8 r, u8 g, u8 b);
 void GUI_DrawPauseMenu(GXRModeObj* rmode, GUIState* gui);
+void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui);
 void GUI_DrawScore(GXRModeObj* rmode, GUIState* gui);
 void GUI_DrawInventory(GXRModeObj* rmode, GUIState* gui);
+void GUI_UpdateScreenSize(GXRModeObj* rmode); // call after widescreen toggle
 
 #endif

@@ -1,4 +1,26 @@
 #include "gui.h"
+#include "textures.h"
+#include "atlas_regions.h"
+#include "chunk.h"
+
+// Runtime screen dimensions — use these instead of compile-time SCREEN_W/H
+static int s_sw = SCREEN_W;
+static int s_sh = SCREEN_H;
+
+static inline float SW() { return (float)s_sw; }
+static inline float SH() { return (float)s_sh; }
+
+// Call when widescreen setting changes
+static void gui_update_screen_size(GXRModeObj* rmode) {
+    (void)rmode;
+    // Always derive from g_config so runtime toggle takes effect immediately
+    s_sw = g_config.widescreen ? 854 : 640;
+    s_sh = 480;
+}
+
+void GUI_UpdateScreenSize(GXRModeObj* rmode) {
+    gui_update_screen_size(rmode);
+}
 #include "utils.h"
 #include "chunk.h"
 #include <gccore.h>
@@ -63,6 +85,7 @@ void GUI_Init(GUIState* gui) {
 // ─── Projection Switch ───────────────────────────────────────────────────────
 
 void GUI_Begin2D(GXRModeObj* rmode) {
+    gui_update_screen_size(rmode);
     GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
     GX_SetCullMode(GX_CULL_NONE);
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
@@ -74,7 +97,7 @@ void GUI_Begin2D(GXRModeObj* rmode) {
 
     // Orthographic projection matching screen pixel coords (0,0) = top-left
     Mtx44 ortho;
-    guOrtho(ortho, 0, SCREEN_H, 0, SCREEN_W, 0, 1); // SCREEN_W/H set by widescreen config
+    guOrtho(ortho, 0, SH(), 0, SW(), 0, 1);
     GX_LoadProjectionMtx(ortho, GX_ORTHOGRAPHIC);
 }
 
@@ -96,8 +119,8 @@ void GUI_End2D(GXRModeObj* rmode) {
 // ─── Crosshair ───────────────────────────────────────────────────────────────
 
 void GUI_DrawCrosshair(GXRModeObj* rmode) {
-    float cx = SCREEN_W / 2.0f;
-    float cy = SCREEN_H / 2.0f;
+    float cx = SW() / 2.0f;
+    float cy = SH() / 2.0f;
     float len = 10.0f;
     float thick = 2.0f;
 
@@ -162,21 +185,85 @@ static void get_block_colors(u8 block,
 }
 
 static void draw_block_icon(float x, float y, float size, u8 block) {
-    // Layout: top face takes top 1/3, two side faces fill the bottom 2/3.
-    // Total height = topH + sideH = size, so icon always fits within its box.
-    float topH  = size * 0.34f;  // top (squished) face height
-    float sideH = size - topH;   // side faces — fills the rest exactly
-    float hw    = size * 0.5f;   // each face is half the total width
+    // Tool/item: flat sprite icon
+    if (block == BLOCK_FLINT_STEEL) {
+        const TexRegion* ts = Tex_GetRegion(TEX_FLINT_STEEL);
+        GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+        GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+        GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+        Tex_BindAtlas();
+        GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+        GX_Position3f32(x,      y,      0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(ts->u0,ts->v0);
+        GX_Position3f32(x+size, y,      0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(ts->u1,ts->v0);
+        GX_Position3f32(x+size, y+size, 0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(ts->u1,ts->v1);
+        GX_Position3f32(x,      y+size, 0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(ts->u0,ts->v1);
+        GX_End();
+        GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+        GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+        GX_SetVtxDesc(GX_VA_TEX0, GX_NONE);
+        return;
+    }
+    // Isometric block icon — proper 45-degree Y rotation look
+    // Top face is a parallelogram, left/right faces are quads
+    // Matches classic Minecraft inventory block rendering
+    float s  = size;
+    float hw = s * 0.5f;     // half width
+    float th = s * 0.25f;    // top face height (skewed)
+    float sh = s * 0.75f;    // side face height
+    // cx = horizontal center of icon
+    float cx = x + hw;
 
-    u8 tr,tg,tb, lr,lg,lb, rr,rg,rb;
-    get_block_colors(block, &tr,&tg,&tb, &lr,&lg,&lb, &rr,&rg,&rb);
+    // Key vertices of isometric block:
+    //   TL = top-left corner of top face
+    //   TR = top-right corner
+    //   TM = top-middle (front peak)
+    //   BL = bottom-left
+    //   BR = bottom-right
+    //   BM = bottom-middle
+    float TLx=x,    TLy=y+th;
+    float TRx=x+s,  TRy=y+th;
+    float TMx=cx,   TMy=y;
+    float BLx=x,    BLy=y+th+sh;
+    float BRx=x+s,  BRy=y+th+sh;
+    float BMx=cx,   BMy=y+sh;
 
-    // Top face
-    draw_rect(x,    y,       size, topH,  tr, tg, tb, 255);
-    // Left face
-    draw_rect(x,    y+topH,  hw,   sideH, lr, lg, lb, 255);
-    // Right face
-    draw_rect(x+hw, y+topH,  hw,   sideH, rr, rg, rb, 255);
+    const TexRegion* tt = Tex_GetRegion(block_face_tex_pub(block, 0));
+    const TexRegion* tl = Tex_GetRegion(block_face_tex_pub(block, 4));
+    const TexRegion* tr2= Tex_GetRegion(block_face_tex_pub(block, 5));
+
+    GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
+    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+    GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    Tex_BindAtlas();
+
+    // Top face — parallelogram: TMx,TMy -> TRx,TRy -> BLx+hw,BLy-sh+th -> TLx,TLy
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position3f32(TMx, TMy,   0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(tt->u0,tt->v0);
+    GX_Position3f32(TRx, TRy,   0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(tt->u1,tt->v0);
+    GX_Position3f32(BMx, BMy,   0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(tt->u1,tt->v1);
+    GX_Position3f32(TLx, TLy,   0); GX_Color4u8(255,255,255,255); GX_TexCoord2f32(tt->u0,tt->v1);
+    GX_End();
+
+    // Left face — medium shade
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position3f32(TLx, TLy,   0); GX_Color4u8(180,180,180,255); GX_TexCoord2f32(tl->u0,tl->v0);
+    GX_Position3f32(BMx, BMy,   0); GX_Color4u8(180,180,180,255); GX_TexCoord2f32(tl->u1,tl->v0);
+    GX_Position3f32(BMx, BLy,   0); GX_Color4u8(180,180,180,255); GX_TexCoord2f32(tl->u1,tl->v1);
+    GX_Position3f32(BLx, BLy,   0); GX_Color4u8(180,180,180,255); GX_TexCoord2f32(tl->u0,tl->v1);
+    GX_End();
+
+    // Right face — darker shade
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position3f32(BMx, BMy,   0); GX_Color4u8(130,130,130,255); GX_TexCoord2f32(tr2->u0,tr2->v0);
+    GX_Position3f32(TRx, TRy,   0); GX_Color4u8(130,130,130,255); GX_TexCoord2f32(tr2->u1,tr2->v0);
+    GX_Position3f32(BRx, BRy,   0); GX_Color4u8(130,130,130,255); GX_TexCoord2f32(tr2->u1,tr2->v1);
+    GX_Position3f32(BMx, BLy,   0); GX_Color4u8(130,130,130,255); GX_TexCoord2f32(tr2->u0,tr2->v1);
+    GX_End();
+
+    // Restore flat color mode
+    GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    GX_SetVtxDesc(GX_VA_TEX0, GX_NONE);
 }
 
 // ─── Hotbar ──────────────────────────────────────────────────────────────────
@@ -185,8 +272,8 @@ void GUI_DrawHotbar(GXRModeObj* rmode, GUIState* gui) {
     float slotSize = 40.0f;
     float slotGap  = 4.0f;
     float totalW   = HOTBAR_SLOTS * slotSize + (HOTBAR_SLOTS - 1) * slotGap;
-    float startX   = (SCREEN_W - totalW) / 2.0f;
-    float startY   = SCREEN_H - slotSize - 12.0f;
+    float startX   = (SW() - totalW) / 2.0f;
+    float startY   = SH() - slotSize - 12.0f;
 
     for (int i = 0; i < HOTBAR_SLOTS; i++) {
         float x = startX + i * (slotSize + slotGap);
@@ -270,8 +357,8 @@ void GUI_DrawHealth(GXRModeObj* rmode, GUIState* gui) {
     float heartSize = 14.0f;
     float gap      = 3.0f;
     float totalW   = hearts * (heartSize + gap) - gap;
-    float startX   = (SCREEN_W - totalW) / 2.0f;
-    float startY   = SCREEN_H - 72.0f; // above hotbar
+    float startX   = (SW() - totalW) / 2.0f;
+    float startY   = SH() - 72.0f; // above hotbar
 
     // Shadow pass
     for (int i = 0; i < hearts; i++) {
@@ -414,12 +501,12 @@ static void draw_string(float x, float y, float scale, const char* str, u8 r, u8
 
 void GUI_DrawPauseMenu(GXRModeObj* rmode, GUIState* gui) {
     // Semi-transparent dark overlay
-    draw_rect(0, 0, SCREEN_W, SCREEN_H, 0, 0, 0, 160);
+    draw_rect(0, 0, (int)SW(), (int)SH(), 0, 0, 0, 160);
 
     // Menu panel
-    float panelW = 200.0f, panelH = 160.0f;
-    float panelX = (SCREEN_W - panelW) / 2.0f;
-    float panelY = (SCREEN_H - panelH) / 2.0f;
+    float panelW = 200.0f, panelH = 185.0f;
+    float panelX = (SW() - panelW) / 2.0f;
+    float panelY = (SH() - panelH) / 2.0f;
 
     // Panel background + border
     draw_rect(panelX, panelY, panelW, panelH, 30, 30, 30, 220);
@@ -435,9 +522,9 @@ void GUI_DrawPauseMenu(GXRModeObj* rmode, GUIState* gui) {
     draw_rect(panelX + 10, panelY + 44, panelW - 20, 2, 120, 120, 120, 200);
 
     // Menu items
-    static const char* items[] = {"RESUME", "RESPAWN", "QUIT"};
+    static const char* items[] = {"RESUME", "SETTINGS", "RESPAWN", "QUIT"};
     for (int i = 0; i < PAUSE_ITEM_COUNT; i++) {
-        float itemY = panelY + 56.0f + i * 32.0f;
+        float itemY = panelY + 56.0f + i * 28.0f;
         float itemScale = 2.0f;
 
         // Highlight selected item
@@ -459,6 +546,84 @@ void GUI_DrawPauseMenu(GXRModeObj* rmode, GUIState* gui) {
     }
 }
 
+// ─── Settings menu ───────────────────────────────────────────────────────────
+
+void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui) {
+    (void)rmode;
+
+    draw_rect(0, 0, (int)SW(), (int)SH(), 0, 0, 0, 160);
+
+    float panelW = 260.0f, panelH = 240.0f;
+    float panelX = (SW() - panelW) / 2.0f;
+    float panelY = (SH() - panelH) / 2.0f;
+
+    draw_rect(panelX, panelY, panelW, panelH, 30, 30, 30, 220);
+    draw_rect_outline(panelX, panelY, panelW, panelH, 2, 180, 180, 180, 255);
+
+    float titleScale = 2.5f;
+    float titleW = 8 * 6 * titleScale;
+    draw_string(panelX + (panelW - titleW) / 2.0f, panelY + 14.0f,
+                titleScale, "SETTINGS", 220, 220, 220);
+    draw_rect(panelX + 10, panelY + 44, panelW - 20, 2, 120, 120, 120, 200);
+
+    // Setting labels and current values
+    struct { const char* label; float val; float min; float max; float step; } settings[] = {
+        { "FOG START",   g_config.fogStart,           5.0f,  60.0f,  5.0f  },
+        { "FOG END",     g_config.fogEnd,             10.0f, 120.0f, 5.0f  },
+        { "SENSITIVITY", g_config.sensitivity,        0.5f,  8.0f,   0.5f  },
+        { "MOVE SPEED",  g_config.moveSpeed,          0.05f, 0.30f,  0.01f },
+        { "WIDESCREEN",  (float)g_config.widescreen,  0.0f,  1.0f,   1.0f  },
+    };
+
+    for (int i = 0; i < SETTING_ITEM_COUNT; i++) {
+        float itemY = panelY + 56.0f + i * 34.0f;
+        float scale = 1.5f;
+        u8 tr = (i == gui->settingsCursor) ? 255 : 180;
+        u8 tg = (i == gui->settingsCursor) ? 255 : 180;
+        u8 tb = (i == gui->settingsCursor) ? 100 : 180;
+
+        if (i == gui->settingsCursor) {
+            draw_rect(panelX + 8, itemY - 4, panelW - 16, 7*scale + 18,
+                      80, 80, 180, 160);
+            draw_rect_outline(panelX + 8, itemY - 4, panelW - 16, 7*scale + 18,
+                              1, 140, 140, 255, 255);
+        }
+
+        // Label
+        draw_string(panelX + 16.0f, itemY, scale, settings[i].label, tr, tg, tb);
+
+        if (i == SETTING_ITEM_WIDESCREEN) {
+            // Toggle: show ON / OFF
+            const char* tog = g_config.widescreen ? "ON" : "OFF";
+            u8 tor = g_config.widescreen ? 100 : 180;
+            u8 tog2 = g_config.widescreen ? 255 : 180;
+            float vw = __builtin_strlen(tog) * 6.0f * scale;
+            draw_string(panelX + panelW - vw - 16.0f, itemY, scale, tog, tor, tog2, tr);
+        } else {
+            // Value bar background
+            float barX = panelX + 16.0f;
+            float barY = itemY + 12.0f;
+            float barW = panelW - 32.0f;
+            float barH = 6.0f;
+            draw_rect(barX, barY, barW, barH, 60, 60, 60, 200);
+            float t = (settings[i].val - settings[i].min) / (settings[i].max - settings[i].min);
+            if (t < 0) t = 0; if (t > 1) t = 1;
+            draw_rect(barX, barY, barW * t, barH, tr, tg, tb, 220);
+            char valbuf[16];
+            if (settings[i].step >= 0.05f)
+                snprintf(valbuf, sizeof(valbuf), "%.1f", settings[i].val);
+            else
+                snprintf(valbuf, sizeof(valbuf), "%.2f", settings[i].val);
+            float vw = __builtin_strlen(valbuf) * 6.0f * scale;
+            draw_string(panelX + panelW - vw - 16.0f, itemY, scale, valbuf, tr, tg, tb);
+        }
+    }
+
+    // Back hint
+    draw_string(panelX + 10.0f, panelY + panelH - 20.0f, 1.5f,
+                "B/ESC: BACK", 140, 140, 140);
+}
+
 // ─── Score display ────────────────────────────────────────────────────────────
 
 // ─── Inventory Screen ────────────────────────────────────────────────────────
@@ -471,11 +636,11 @@ void GUI_DrawInventory(GXRModeObj* rmode, GUIState* gui) {
     float hotbarH  = slotSize + 4.0f;
     float mainH    = INV_ROWS * slotSize;
     float panelH   = mainH + gap + hotbarH + 4.0f;
-    float panelX   = (SCREEN_W - panelW) / 2.0f;
-    float panelY   = (SCREEN_H - panelH) / 2.0f;
+    float panelX   = (SW() - panelW) / 2.0f;
+    float panelY   = (SH() - panelH) / 2.0f;
 
     // Dark overlay
-    draw_rect(0, 0, SCREEN_W, SCREEN_H, 0, 0, 0, 160);
+    draw_rect(0, 0, (int)SW(), (int)SH(), 0, 0, 0, 160);
 
     // ── Main inventory 3x9 ───────────────────────────────────────────
     for (int row = 0; row < INV_ROWS; row++) {
@@ -613,7 +778,7 @@ void GUI_DrawScore(GXRModeObj* rmode, GUIState* gui) {
     float labelW = 6 * 6 * scale;  // "SCORE " = 6 chars
     float numW   = 6 * 6 * scale;
 
-    float x = SCREEN_W - labelW - numW - 10;
+    float x = SW() - labelW - numW - 10;
     float y = 8.0f;
 
     // Shadow

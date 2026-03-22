@@ -26,6 +26,7 @@ void TNT_Init(void);
 // Ignite a TNT block at world position — removes the block, starts fuse
 // Returns 1 if ignited, 0 if position isn't TNT or pool is full
 int  TNT_Ignite(World* world, int wx, int wy, int wz);
+int  TNT_IgniteDelayed(World* world, int wx, int wy, int wz, int extra_fuse);
 
 // Update all lit TNT each frame
 void TNT_Update(World* world, Player* player);

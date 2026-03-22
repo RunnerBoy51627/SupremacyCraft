@@ -1,4 +1,7 @@
 #include "itemdrop.h"
+#include "textures.h"
+#include "atlas_regions.h"
+#include "chunk.h"
 #include "chunk.h"
 #include "camera.h"
 #include "utils.h"
@@ -40,47 +43,46 @@ static void get_drop_colors(u8 block,
 }
 
 // ── Draw a small colored cube at origin in world space ────────────────────────
-static void draw_drop_cube(float s,
-    u8 tr, u8 tg, u8 tb,
-    u8 fr, u8 fg, u8 fb,
-    u8 rr, u8 rg, u8 rb)
+static void draw_drop_cube_textured(float s, u8 block)
 {
     float h = s * 0.5f;
-    u8 br=(u8)(rr*.72f), bg=(u8)(rg*.72f), bb=(u8)(rb*.72f);
-    u8 lr=(u8)(rr*.85f), lg=(u8)(rg*.85f), lb=(u8)(rb*.85f);
-    u8 botr=(u8)(tr*.40f), botg=(u8)(tg*.40f), botb=(u8)(tb*.40f);
-
+    const TexRegion* tt  = Tex_GetRegion(block_face_tex_pub(block, 0));
+    const TexRegion* tbt = Tex_GetRegion(block_face_tex_pub(block, 1));
+    const TexRegion* tn  = Tex_GetRegion(block_face_tex_pub(block, 2));
+    const TexRegion* tss = Tex_GetRegion(block_face_tex_pub(block, 3));
+    const TexRegion* tw  = Tex_GetRegion(block_face_tex_pub(block, 4));
+    const TexRegion* te  = Tex_GetRegion(block_face_tex_pub(block, 5));
     GX_Begin(GX_QUADS, GX_VTXFMT0, 24);
     // Top
-    GX_Position3f32(-h, h,-h); GX_Color4u8(tr,tg,tb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h, h,-h); GX_Color4u8(tr,tg,tb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h, h, h); GX_Color4u8(tr,tg,tb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h, h, h); GX_Color4u8(tr,tg,tb,255); GX_TexCoord2f32(0,0);
+    GX_Position3f32(-h,h,-h);GX_Color4u8(255,255,255,255);GX_TexCoord2f32(tt->u0,tt->v0);
+    GX_Position3f32( h,h,-h);GX_Color4u8(255,255,255,255);GX_TexCoord2f32(tt->u1,tt->v0);
+    GX_Position3f32( h,h, h);GX_Color4u8(255,255,255,255);GX_TexCoord2f32(tt->u1,tt->v1);
+    GX_Position3f32(-h,h, h);GX_Color4u8(255,255,255,255);GX_TexCoord2f32(tt->u0,tt->v1);
     // Bottom
-    GX_Position3f32(-h,-h, h); GX_Color4u8(botr,botg,botb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h,-h, h); GX_Color4u8(botr,botg,botb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h,-h,-h); GX_Color4u8(botr,botg,botb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h,-h,-h); GX_Color4u8(botr,botg,botb,255); GX_TexCoord2f32(0,0);
-    // Front (+Z face, winds CCW when viewed from +Z)
-    GX_Position3f32( h,-h, h); GX_Color4u8(fr,fg,fb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h,-h, h); GX_Color4u8(fr,fg,fb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h, h, h); GX_Color4u8(fr,fg,fb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h, h, h); GX_Color4u8(fr,fg,fb,255); GX_TexCoord2f32(0,0);
-    // Back (-Z face)
-    GX_Position3f32(-h,-h,-h); GX_Color4u8(br,bg,bb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h,-h,-h); GX_Color4u8(br,bg,bb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h, h,-h); GX_Color4u8(br,bg,bb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h, h,-h); GX_Color4u8(br,bg,bb,255); GX_TexCoord2f32(0,0);
-    // Right (+X face)
-    GX_Position3f32( h,-h,-h); GX_Color4u8(rr,rg,rb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h,-h, h); GX_Color4u8(rr,rg,rb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h, h, h); GX_Color4u8(rr,rg,rb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32( h, h,-h); GX_Color4u8(rr,rg,rb,255); GX_TexCoord2f32(0,0);
-    // Left (-X face)
-    GX_Position3f32(-h,-h, h); GX_Color4u8(lr,lg,lb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h,-h,-h); GX_Color4u8(lr,lg,lb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h, h,-h); GX_Color4u8(lr,lg,lb,255); GX_TexCoord2f32(0,0);
-    GX_Position3f32(-h, h, h); GX_Color4u8(lr,lg,lb,255); GX_TexCoord2f32(0,0);
+    GX_Position3f32(-h,-h, h);GX_Color4u8(130,130,130,255);GX_TexCoord2f32(tbt->u0,tbt->v0);
+    GX_Position3f32( h,-h, h);GX_Color4u8(130,130,130,255);GX_TexCoord2f32(tbt->u1,tbt->v0);
+    GX_Position3f32( h,-h,-h);GX_Color4u8(130,130,130,255);GX_TexCoord2f32(tbt->u1,tbt->v1);
+    GX_Position3f32(-h,-h,-h);GX_Color4u8(130,130,130,255);GX_TexCoord2f32(tbt->u0,tbt->v1);
+    // Front
+    GX_Position3f32( h,-h, h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tss->u0,tss->v0);
+    GX_Position3f32(-h,-h, h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tss->u1,tss->v0);
+    GX_Position3f32(-h, h, h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tss->u1,tss->v1);
+    GX_Position3f32( h, h, h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tss->u0,tss->v1);
+    // Back
+    GX_Position3f32(-h,-h,-h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tn->u0,tn->v0);
+    GX_Position3f32( h,-h,-h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tn->u1,tn->v0);
+    GX_Position3f32( h, h,-h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tn->u1,tn->v1);
+    GX_Position3f32(-h, h,-h);GX_Color4u8(210,210,210,255);GX_TexCoord2f32(tn->u0,tn->v1);
+    // Right
+    GX_Position3f32( h,-h,-h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(te->u0,te->v0);
+    GX_Position3f32( h,-h, h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(te->u1,te->v0);
+    GX_Position3f32( h, h, h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(te->u1,te->v1);
+    GX_Position3f32( h, h,-h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(te->u0,te->v1);
+    // Left
+    GX_Position3f32(-h,-h, h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(tw->u0,tw->v0);
+    GX_Position3f32(-h,-h,-h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(tw->u1,tw->v0);
+    GX_Position3f32(-h, h,-h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(tw->u1,tw->v1);
+    GX_Position3f32(-h, h, h);GX_Color4u8(180,180,180,255);GX_TexCoord2f32(tw->u0,tw->v1);
     GX_End();
 }
 
@@ -215,16 +217,15 @@ void ItemDrop_Update(World* world, Player* player, GUIState* gui) {
 
 // ── Render ────────────────────────────────────────────────────────────────────
 void ItemDrop_Render(void) {
-    GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
     GX_SetCullMode(GX_CULL_BACK);
+    Tex_BindAtlas();
 
     for (int i = 0; i < MAX_ITEM_DROPS; i++) {
         ItemDrop* d = &s_drops[i];
         if (!d->active) continue;
 
-        u8 tr,tg,tb, fr,fg,fb, rr,rg,rb;
-        get_drop_colors(d->blockType, &tr,&tg,&tb, &fr,&fg,&fb, &rr,&rg,&rb);
 
         // Bob offset
         float bobY = sinf(d->bobPhase) * 0.06f;
@@ -251,7 +252,7 @@ void ItemDrop_Render(void) {
         guMtxConcat(g_viewMatrix, mv, final);
         GX_LoadPosMtxImm(final, GX_PNMTX0);
 
-        draw_drop_cube(DROP_SIZE, tr,tg,tb, fr,fg,fb, rr,rg,rb);
+        draw_drop_cube_textured(DROP_SIZE, d->blockType);
     }
 
     // Restore state

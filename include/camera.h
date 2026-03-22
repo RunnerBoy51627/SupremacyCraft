@@ -9,6 +9,7 @@ typedef struct {
     guVector forward;
     float yaw;
     float pitch;
+    float roll;   // damage tilt in degrees
 } FreeCam;
 
 extern Mtx g_viewMatrix;

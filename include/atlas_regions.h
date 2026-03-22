@@ -14,7 +14,8 @@
 #define TEX_TNT_SIDE 9
 #define TEX_TNT_TOP 10
 #define TEX_TNT_BOTTOM 11
-#define TEX_COUNT 12
+#define TEX_FLINT_STEEL 12
+#define TEX_COUNT 13
 
 #ifdef ATLAS_REGIONS_IMPL
 static const float atlas_uvs[TEX_COUNT][4] = {
@@ -30,6 +31,7 @@ static const float atlas_uvs[TEX_COUNT][4] = {
     {0.250000f, 0.500000f, 0.500000f, 0.750000f}, // TEX_TNT_SIDE
     {0.500000f, 0.500000f, 0.750000f, 0.750000f}, // TEX_TNT_TOP
     {0.750000f, 0.500000f, 1.000000f, 0.750000f}, // TEX_TNT_BOTTOM
+    {0.000000f, 0.750000f, 0.250000f, 1.000000f}, // TEX_FLINT_STEEL
 };
 #endif
 
