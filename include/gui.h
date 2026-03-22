@@ -4,7 +4,7 @@
 #include <gccore.h>
 #include "utils.h"
 
-#define HOTBAR_SLOTS 8
+#define HOTBAR_SLOTS 9
 // Screen dimensions — update to match your video mode
 #if DISPLAY_WIDESCREEN
   #define SCREEN_W 854
@@ -20,7 +20,7 @@
 #define PAUSE_ITEM_QUIT    2
 #define PAUSE_ITEM_COUNT   3
 
-#define INV_SLOTS 8
+#define INV_SLOTS 9
 
 typedef struct {
     int selectedSlot;

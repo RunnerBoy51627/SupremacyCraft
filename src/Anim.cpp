@@ -10,14 +10,17 @@ static inline float lerpf(float a, float b, float t) { return a+(b-a)*t; }
 static inline float clampf(float v, float lo, float hi){ return v<lo?lo:(v>hi?hi:v); }
 static inline float smoothstep(float t){ t=clampf(t,0,1); return t*t*(3-2*t); }
 
-// ── Box draw — TEX0 kept GX_DIRECT with dummy coords, TEV=PASSCLR ─────────────
+// ── Box draw ──────────────────────────────────────────────────────────────────
 static void draw_box(float w, float h, float d, u8 r, u8 g, u8 b)
 {
-    float hw=w*.3f, hh=h*.5f, hd=d*.3f;
-    u8 rt=r,            gt_=g,            bt_=b;
-    u8 rf=(u8)(r*.80f), gf=(u8)(g*.80f),  bf=(u8)(b*.80f);
-    u8 rs=(u8)(r*.62f), gs=(u8)(g*.62f),  bs_=(u8)(b*.62f);
-    u8 rb=(u8)(r*.44f), gb=(u8)(g*.44f),  bb=(u8)(b*.44f);
+    float hw = w * 0.5f;
+    float hh = h * 0.5f;
+    float hd = d * 0.5f;
+
+    u8 rt = r,              gt_ = g,              bt_ = b;
+    u8 rf = (u8)(r*.80f),   gf  = (u8)(g*.80f),   bf  = (u8)(b*.80f);
+    u8 rs = (u8)(r*.62f),   gs  = (u8)(g*.62f),   bs_ = (u8)(b*.62f);
+    u8 rb = (u8)(r*.44f),   gb  = (u8)(g*.44f),   bb  = (u8)(b*.44f);
 
     GX_Begin(GX_QUADS, GX_VTXFMT0, 24);
     // Top
@@ -58,12 +61,12 @@ void Anim_Init(HandAnim* anim) {
     anim->state    = ANIM_IDLE;
     anim->timer    = 0.0f;
     anim->blendOut = 0.0f;
-    anim->arm.pos   = (guVector){.2,0,-0.5};
-    anim->arm.rot   = (guVector){0,0,0};
-    anim->arm.scale = (guVector){0.5,1,0.5};
-    anim->hand.pos   = (guVector){.2,0,-0.5};
-    anim->hand.rot   = (guVector){0,0,0};
-    anim->hand.scale = (guVector){.5,1,.5};
+    anim->arm.pos   = (guVector){0, 0, 0};
+    anim->arm.rot   = (guVector){0, 0, 0};
+    anim->arm.scale = (guVector){1, 1, 1};
+    anim->hand.pos   = (guVector){0, 0, 0};
+    anim->hand.rot   = (guVector){0, 0, 0};
+    anim->hand.scale = (guVector){1, 1, 1};
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
@@ -81,7 +84,7 @@ void Anim_Update(HandAnim* anim, int triggerSwing, int triggerEquip) {
     float idleBY = sinf(idleT) * 0.003f;
     float idleRZ = sinf(idleT * 0.5f) * 0.5f;
 
-    float swDY=0, swRX=0;
+    float swDY = 0, swRX = 0;
     if (anim->state == ANIM_SWING) {
         float phase = clampf(anim->timer / 14.0f, 0.0f, 1.0f);
         if (phase < 0.4f) {
@@ -89,16 +92,16 @@ void Anim_Update(HandAnim* anim, int triggerSwing, int triggerEquip) {
             swDY = lerpf(0.0f, -0.07f, t);
             swRX = lerpf(0.0f,  60.0f, t);
         } else {
-            float t = smoothstep((phase-0.4f)/0.6f);
+            float t = smoothstep((phase - 0.4f) / 0.6f);
             swDY = lerpf(-0.07f, 0.0f, t);
             swRX = lerpf( 60.0f, 0.0f, t);
         }
         if (phase >= 1.0f) anim->state = ANIM_IDLE;
     }
 
-    float eqDY=0, eqRX=0;
+    float eqDY = 0, eqRX = 0;
     if (anim->state == ANIM_EQUIP) {
-        float t = smoothstep(clampf(anim->timer/8.0f,0,1));
+        float t = smoothstep(clampf(anim->timer / 8.0f, 0, 1));
         eqDY = lerpf(-0.10f, 0.0f, t);
         eqRX = lerpf( 20.0f, 0.0f, t);
         if (anim->timer >= 8.0f) anim->state = ANIM_IDLE;
@@ -110,12 +113,6 @@ void Anim_Update(HandAnim* anim, int triggerSwing, int triggerEquip) {
 }
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
-// Strategy: load an IDENTITY view matrix, then position the arm in a fixed
-// clip-like space so it never moves with the camera.
-// We switch the position matrix to identity (no view transform), place the arm
-// at a hardcoded eye-space position, and restore afterwards.
-// GX_PNMTX0 is loaded per-object so this doesn't break the world render.
-
 void Anim_DrawHand(HandAnim* anim, FreeCam* cam) {
     (void)cam;
 
@@ -125,35 +122,21 @@ void Anim_DrawHand(HandAnim* anim, FreeCam* cam) {
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
     GX_SetCullMode(GX_CULL_BACK);
 
-    // ── Eye-space anchor ──────────────────────────────────────────────────
-    // Coordinate notes (GX eye-space, identity view matrix):
-    //   +X = right,  +Y = up,  -Z = into screen (right-handed, NDC near ~0.1)
-    //
-    // Target pose (Minecraft Beta 1.x first-person):
-    //   - Arm visible in bottom-right corner, only top ~35% above screen edge
-    //   - Front face faces viewer; narrow side faces screen-left
-    //   - Top face slightly tilted toward viewer (nearly horizontal)
-    //
-    // ex/ey/ez position the arm's *centre* in eye space BEFORE the local
-    // downward shift.  Keep ex modest — the post-rotation local Y shift has
-    // a rightward component at -45° Y that already pushes the arm right.
-    float ex =  0.26f + anim->arm.pos.x * 0.5f;  // right of screen centre
-    float ey = -0.20f + anim->arm.pos.y;          // slightly below centre
-    float ez = -0.45f;                             // depth (near = larger)
+    // ── Position (eye-space: X+ right, Y+ up, Z- into screen) ────────────
+    // ez=-0.72: frustum half-extents at this depth ±0.672 X / ±0.504 Y
+    float ex =  0.44f + anim->arm.pos.x;  // right of centre
+    float ey = -0.30f + anim->arm.pos.y;  // below centre
+    float ez = -0.82f;                     // further away = smaller
 
-    // Rotations:
-    //   Y: -45°  inward tilt — narrow side faces left, front/top face viewer
-    //   X: -10°  slight backward tilt so top face reads as nearly horizontal
-    //   Z: idle breathing roll (very subtle, from Anim_Update)
+    // ── Rotation ──────────────────────────────────────────────────────────
+    float rotY = -45.0f;                     // left or right  — front face toward viewer
+    float rotX = -15.0f + anim->arm.rot.x;  // tilt forward and back — shows top face
+    float rotZ =           anim->arm.rot.z;  // roll — idle sway only
 
-    float restRX = 10.0f + anim->arm.rot.x; // left or right?
-    float restRY = -95.0f; // upwards and downwards!
-    float restRZ = -15.0f + anim->arm.rot.z; // tilt forward and back
-
-    Mtx ry, rx, rz, rot, tmp;
-    guMtxRotRad(ry, 'y', restRY * DEG2RAD);
-    guMtxRotRad(rx, 'x', restRX * DEG2RAD);
-    guMtxRotRad(rz, 'z', restRZ * DEG2RAD);
+    Mtx ry, rx, rz, tmp, rot;
+    guMtxRotRad(ry, 'y', rotY * DEG2RAD);
+    guMtxRotRad(rx, 'x', rotX * DEG2RAD);
+    guMtxRotRad(rz, 'z', rotZ * DEG2RAD);
     guMtxConcat(ry, rx, tmp);
     guMtxConcat(tmp, rz, rot);
 
@@ -163,21 +146,17 @@ void Anim_DrawHand(HandAnim* anim, FreeCam* cam) {
     eyeMtx[1][3] = ey;
     eyeMtx[2][3] = ez;
 
-    // Local-Y shift: moves along the arm's own long axis (after rotation),
-    // sinking the wrist/base below the screen bottom while keeping the
-    // top of the arm visible.  At -45° Y the local-Y axis has a +X component
-    // in eye space (~0.7x), so keep this shift conservative to avoid sliding
-    // the arm off the right edge of the screen.
+    // ── Sink arm down local Y so only the top ~35% is on screen ──────────
     Mtx shift, final;
     guMtxIdentity(shift);
-    guMtxTransApply(shift, shift, 0.0f, -0.22f, 0.0f);
+    guMtxTransApply(shift, shift, 0.0f, -0.34f, 0.0f);
     guMtxConcat(eyeMtx, shift, final);
     GX_LoadPosMtxImm(final, GX_PNMTX0);
 
-    // Square cross-section arm (4×4×12 game units scaled to eye space).
-    draw_box(0.22f, 0.58f, 0.22f, 198, 145, 100);
+    // ── Scale — Minecraft proportions 0.3 : 1.0 : 0.3 ───────────────────
+    draw_box(0.18f, 0.60f, 0.18f, 198, 145, 100);
 
-    // Restore full 3D state
+    // ── Restore 3D state ──────────────────────────────────────────────────
     GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
     GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
     GX_SetCullMode(GX_CULL_BACK);

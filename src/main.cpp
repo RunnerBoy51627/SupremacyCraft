@@ -228,6 +228,12 @@ int main(int argc, char **argv) {
         l_prev = l_now;
         r_prev = r_now;
 
+
+        // ── Hand — drawn before GUI so hotbar/hearts render on top ──────────
+        if (!myPlayer.dead && !gui.paused)
+            Anim_DrawHand(&handAnim, &myCam);
+        GX_LoadPosMtxImm(g_viewMatrix, GX_PNMTX0);
+
         // ── 2D GUI ──────────────────────────────────────────────────────────
         // Sync survival stats to GUI
         gui.health    = myPlayer.health;
@@ -259,15 +265,6 @@ int main(int argc, char **argv) {
         GUI_DrawDebug(rmode,
             myPlayer.pos.x, myPlayer.pos.y, myPlayer.pos.z, fps);
         GUI_End2D(rmode);
-
-        // ── Hand — drawn last so it's always on top of GUI ──────────────────
-        // GUI_End2D already restored perspective projection and depth state.
-        // We draw the hand in eye-space (no view matrix), then reload the
-        // view matrix so the next frame's world render starts clean.
-        if (!myPlayer.dead && !gui.paused)
-            Anim_DrawHand(&handAnim, &myCam);
-        // Reload view matrix into PNMTX0 so next frame's world render is clean
-        GX_LoadPosMtxImm(g_viewMatrix, GX_PNMTX0);
 
         // ── Present ─────────────────────────────────────────────────────────
         GX_DrawDone();

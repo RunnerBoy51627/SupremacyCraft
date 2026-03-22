@@ -34,6 +34,10 @@ typedef struct {
     // Respawn
     guVector spawn;           // respawn position
     int      dead;            // 1 if player is dead, waits for A press
+
+    // View bobbing
+    float    bobPhase;        // walks 0..2PI per step cycle
+    float    bobIntensity;    // 0 = still, 1 = full bob (lerps up/down)
 } Player;
 
 void Player_Init(Player* player);
