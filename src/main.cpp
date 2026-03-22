@@ -86,6 +86,7 @@ int main(int argc, char **argv) {
     while(1) {
         PAD_ScanPads();
         u32 down = PAD_ButtonsDown(0);
+        static u8 l_prev = 0, r_prev = 0;
 
         // START toggles pause
         if (down & PAD_BUTTON_START)
@@ -121,6 +122,10 @@ int main(int argc, char **argv) {
                 }
             }
             jump = 0; // prevent A press from menu carrying into gameplay
+            // Update trigger state even while paused so edge-detection
+            // doesn't fire the moment the player unpauses
+            l_prev = PAD_TriggerL(0);
+            r_prev = PAD_TriggerR(0);
             // Skip game update while paused — jump to render
             goto render_frame;
         }
@@ -173,7 +178,6 @@ int main(int argc, char **argv) {
         Raycast_DrawHighlight(&ray);
 
         // L trigger = break, R trigger = place (fire once per press)
-        static u8 l_prev = 0, r_prev = 0;
         u8 l_now = PAD_TriggerL(0);
         u8 r_now = PAD_TriggerR(0);
 
