@@ -4,6 +4,10 @@
 /*.cia
 /*.elf
 /*.smdh
+/*.dol
+/*.gcm
+/*.iso
+/*.sav
 
 # OS files
 .DS_Store
@@ -20,3 +24,13 @@ Thumbs.db
 
 # Temporary files
 *.tmp
+
+# DevKitPro / MSYS2 temp files
+*.dep
+*.d
+*.stackdump
+
+# Editor files
+*.swp
+*.vscode/
+*.idea/
