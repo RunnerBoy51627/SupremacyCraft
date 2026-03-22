@@ -1,0 +1,42 @@
+{
+    "configurations": [
+        {
+            "name": "GC",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src/platform",
+                "C:/devkitPro/libogc/include",
+                "C:/devkitPro/portlibs/ppc/include"
+            ],
+            "defines": [
+                "GEKKO",
+                "_GC",
+                "HAVE_WIIMOTE"
+            ],
+            "compilerPath": "C:/devkitPro/devkitPPC/bin/powerpc-eabi-g++.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "intelliSenseMode": "gcc-x64"
+        },
+        {
+            "name": "PC",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src/platform",
+                "${workspaceFolder}/src/platform/pc",
+                "${workspaceFolder}/glm",
+                "C:/msys64/mingw64/include",
+                "C:/msys64/mingw64/include/SDL2"
+            ],
+            "defines": [
+                "_PC",
+                "PLATFORM_PC"
+            ],
+            "compilerPath": "C:/msys64/mingw64/bin/g++.exe",
+            "cStandard": "c11",
+            "cppStandard": "c++11",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}
