@@ -68,17 +68,18 @@ u8 World_GetBlock(World* world, int wx, int wy, int wz) {
     return Chunk_GetBlock(c, lx, wy, lz);
 }
 
-void World_SetBlock(World* world, int wx, int wy, int wz, u8 block) {
+bool World_SetBlock(World* world, int wx, int wy, int wz, u8 block) {
     int cx = wx / CHUNK_SIZE, lx = wx % CHUNK_SIZE;
     int cz = wz / CHUNK_SIZE, lz = wz % CHUNK_SIZE;
     if (lx < 0) { lx += CHUNK_SIZE; cx--; }
     if (lz < 0) { lz += CHUNK_SIZE; cz--; }
     Chunk* c = get_chunk(world, cx, cz);
-    if (!c) return;
-    Chunk_SetBlock(c, lx, wy, lz, block);
+    if (!c) return false;
+    if (!Chunk_SetBlock(c, lx, wy, lz, block)) return false;
     // Also mark neighbor dirty if on chunk border
     if (lx == 0 && get_chunk(world, cx-1, cz)) get_chunk(world, cx-1, cz)->dirty = 1;
     if (lx == CHUNK_SIZE-1 && get_chunk(world, cx+1, cz)) get_chunk(world, cx+1, cz)->dirty = 1;
     if (lz == 0 && get_chunk(world, cx, cz-1)) get_chunk(world, cx, cz-1)->dirty = 1;
     if (lz == CHUNK_SIZE-1 && get_chunk(world, cx, cz+1)) get_chunk(world, cx, cz+1)->dirty = 1;
+    return true;
 }

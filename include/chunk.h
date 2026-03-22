@@ -44,6 +44,6 @@ void Chunk_Render(Chunk* chunk);
 
 // Block accessors
 u8   Chunk_GetBlock(Chunk* chunk, int x, int y, int z);
-void Chunk_SetBlock(Chunk* chunk, int x, int y, int z, u8 block);
+bool Chunk_SetBlock(Chunk* chunk, int x, int y, int z, u8 block);
 
 #endif

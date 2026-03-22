@@ -26,12 +26,13 @@ u8 Chunk_GetBlock(Chunk* chunk, int x, int y, int z) {
     return chunk->blocks[x][y][z];
 }
 
-void Chunk_SetBlock(Chunk* chunk, int x, int y, int z, u8 block) {
+bool Chunk_SetBlock(Chunk* chunk, int x, int y, int z, u8 block) {
     if (x < 0 || x >= CHUNK_SIZE ||
         y < 0 || y >= CHUNK_SIZE ||
-        z < 0 || z >= CHUNK_SIZE) return;
+        z < 0 || z >= CHUNK_SIZE) return false;
     chunk->blocks[x][y][z] = block;
     chunk->dirty = 1;
+    return true;
 }
 
 // Get block accounting for chunk borders

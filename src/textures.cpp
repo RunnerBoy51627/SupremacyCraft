@@ -10,6 +10,8 @@ extern const u8  atlas_png[];
 extern const u32 atlas_png_size;
 
 static GXTexObj atlasObj;
+static int s_atlasW = 64; // default; overwritten by Tex_Init
+static int s_atlasH = 32;
 
 typedef struct { const u8* data; u32 pos; u32 size; } PngReader;
 static void png_read_mem(png_structp png, png_bytep out, png_size_t count) {
@@ -28,6 +30,8 @@ void Tex_Init() {
 
     int w = png_get_image_width(png, info);
     int h = png_get_image_height(png, info);
+    s_atlasW = w;
+    s_atlasH = h;
     png_set_strip_16(png);
     png_set_expand(png);
     if (png_get_color_type(png, info) == PNG_COLOR_TYPE_RGB)
@@ -73,9 +77,21 @@ const TexRegion* Tex_GetRegion(int texID) {
     static TexRegion cache[TEX_COUNT];
     static int built = 0;
     if (!built) {
+        // Inset each UV region by half a texel to prevent neighbouring
+        // tile bleed when the GPU samples near atlas tile boundaries.
+        // With nearest-neighbour filtering, even a tiny FP rounding error
+        // at a UV edge can fetch the adjacent tile's outermost texel.
+        // Pulling each edge inward by 0.5/atlasSize guarantees the sample
+        // always lands inside the correct tile.
+        float insetU = 0.5f / (float)s_atlasW;
+        float insetV = 0.5f / (float)s_atlasH;
         for (int i = 0; i < TEX_COUNT; i++) {
-            cache[i] = {atlas_uvs[i][0], atlas_uvs[i][1],
-                        atlas_uvs[i][2], atlas_uvs[i][3]};
+            cache[i] = {
+                atlas_uvs[i][0] + insetU,
+                atlas_uvs[i][1] + insetV,
+                atlas_uvs[i][2] - insetU,
+                atlas_uvs[i][3] - insetV
+            };
         }
         built = 1;
     }

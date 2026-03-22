@@ -1,4 +1,5 @@
 #include "player.h"
+#include "utils.h"
 #include "chunk.h"
 #include "world.h"
 #include "camera.h"
@@ -47,7 +48,27 @@ void Player_Init(Player* player) {
     player->invincible   = 0;
     player->fall_speed_peak = 0.0f;
     player->dead         = 0;
-    player->death_timer  = 0;
+}
+
+void Player_Respawn(Player* player, World* world) {
+    // Find the highest solid block at spawn x/z, place player on top of it
+    int sx = (int)player->spawn.x;
+    int sz = (int)player->spawn.z;
+    int spawnY = 2; // fallback floor
+    for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
+        if (World_GetBlock(world, sx, y, sz) != BLOCK_AIR) {
+            spawnY = y + 1;
+            break;
+        }
+    }
+    player->pos          = (guVector){player->spawn.x, (float)spawnY, player->spawn.z};
+    player->velocity     = (guVector){0, 0, 0};
+    player->health       = PLAYER_MAX_HEALTH;
+    player->air          = PLAYER_MAX_AIR;
+    player->grounded     = 0;
+    player->dead         = 0;
+    player->fall_speed_peak = 0.0f;
+    player->invincible   = 60; // brief grace period so landing doesn't immediately hurt
 }
 
 void Player_Damage(Player* player, int amount) {
@@ -68,21 +89,10 @@ void Player_Update(Player* player, World* world,
                    float yaw)
 {
     // ── Death & respawn ───────────────────────────────────────────────────
-    if (player->dead) {
-        if (--player->death_timer <= 0) {
-            player->pos      = player->spawn;
-            player->velocity = (guVector){0,0,0};
-            player->health   = PLAYER_MAX_HEALTH;
-            player->air      = PLAYER_MAX_AIR;
-            player->grounded = 0;
-            player->dead     = 0;
-            player->fall_speed_peak = 0.0f;
-        }
-        return;
-    }
+    if (player->dead) return; // frozen until main.cpp resets on button press
+
     if (player->health <= 0) {
-        player->dead        = 1;
-        player->death_timer = 180;
+        player->dead = 1;
         return;
     }
     if (player->invincible > 0) player->invincible--;
@@ -116,7 +126,7 @@ void Player_Update(Player* player, World* world,
 
     // 3. Gravity
     player->velocity.y += GRAVITY;
-    if (player->velocity.y < -1.0f) player->velocity.y = -1.0f;
+    if (player->velocity.y < -0.8f) player->velocity.y = -0.8f;
     if (player->velocity.y < player->fall_speed_peak)
         player->fall_speed_peak = player->velocity.y;
 

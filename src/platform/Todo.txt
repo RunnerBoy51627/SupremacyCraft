@@ -1,0 +1,5 @@
+To-Do:
+Use This folder as a platform folder "/src/platform"
+Re-Add 3DS Support without making a toolchain break.
+Add PC support and make it default.
+Move Gamecube Support to here without breaking it.

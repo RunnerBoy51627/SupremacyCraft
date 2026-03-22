@@ -10,14 +10,15 @@
 #define PLAYER_HEIGHT 1.8f
 #define PLAYER_EYE_Y  1.6f  // camera height above player feet
 
-#define GRAVITY       -0.008f
-#define JUMP_FORCE     0.14f
+#define GRAVITY       -0.010f
+#define JUMP_FORCE     0.18f
 #define MOVE_SPEED     0.10f
 
 #define PLAYER_MAX_HEALTH    20
 #define PLAYER_MAX_AIR       300   // frames of air underwater (~5 seconds at 60fps)
-#define FALL_DAMAGE_THRESHOLD 4.0f // fall faster than this = take damage
-#define FALL_DAMAGE_MULT      2.0f // damage = (speed - threshold) * mult
+// Fall damage kicks in at ~3 blocks. At terminal velocity (~2.0) a 25-block fall is lethal.
+#define FALL_DAMAGE_THRESHOLD 0.241f
+#define FALL_DAMAGE_MULT      37.81f
 
 typedef struct {
     guVector pos;
@@ -32,8 +33,7 @@ typedef struct {
 
     // Respawn
     guVector spawn;           // respawn position
-    int      dead;            // 1 if player is dead
-    int      death_timer;     // countdown before respawn
+    int      dead;            // 1 if player is dead, waits for A press
 } Player;
 
 void Player_Init(Player* player);
@@ -45,6 +45,9 @@ void Player_Update(Player* player, World* world,
 
 // Deal damage to player (respects invincibility frames)
 void Player_Damage(Player* player, int amount);
+
+// Respawn player — finds safe terrain height at spawn x/z, resets all stats
+void Player_Respawn(Player* player, World* world);
 
 // Point the FreeCam at the player's eye position
 void Player_ApplyToCamera(Player* player, FreeCam* cam);

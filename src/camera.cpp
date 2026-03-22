@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "utils.h"
 #include <math.h>
 #include <gccore.h>
 
@@ -22,8 +23,8 @@ void Camera_Init(FreeCam* cam) {
 
 // Only updates look direction — position is driven by Player_ApplyToCamera
 void Camera_UpdateLook(FreeCam* cam, s8 cStickX, s8 cStickY) {
-    if (cStickX > 15 || cStickX < -15) cam->yaw   += (cStickX / 128.0f) * 2.5f;
-    if (cStickY > 15 || cStickY < -15) cam->pitch += (cStickY / 128.0f) * 2.5f;
+    if (cStickX > 15 || cStickX < -15) cam->yaw   += (cStickX / 128.0f) * g_config.sensitivity;
+    if (cStickY > 15 || cStickY < -15) cam->pitch += (cStickY / 128.0f) * g_config.sensitivity;
 
     if (cam->pitch >  89.0f) cam->pitch =  89.0f;
     if (cam->pitch < -89.0f) cam->pitch = -89.0f;
