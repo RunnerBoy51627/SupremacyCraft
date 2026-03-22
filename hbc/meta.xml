@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1">
+    <name>My3DSCraft</name>
+    <coder>Martin Otten</coder>
+    <version>1.0</version>
+    <release_date>20260322</release_date>
+    <short_description>Minecraft clone for GameCube/Wii</short_description>
+    <long_description>A Minecraft-inspired voxel game built with devkitPPC and libogc.
+Features survival mode, crafting, item drops, particles, and procedural terrain generation.</long_description>
+    <ahb_access/>
+</app>

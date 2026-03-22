@@ -1,5 +1,11 @@
-#include <gccore.h>
-#include <ogc/lwp_watchdog.h>
+#ifdef _PC
+  #include <stdio.h>
+  #include "platform/pc/gc_compat.h"
+  #include "platform/platform.h"
+#else
+  #include <gccore.h>
+  #include <ogc/lwp_watchdog.h>
+#endif
 #include <malloc.h>
 #include <string.h>
 #include "world.h"
@@ -10,27 +16,40 @@
 #include "raycast.h"
 #include "utils.h"
 #include "anim.h"
+#include "itemdrop.h"
+#include "particle.h"
+#include "crafting.h"
+#include "input.h"
+#include "sound.h"
+#include "crash_handler.h"
+#include "tnt.h"
 
-#define FIFO_SIZE (256 * 1024)
+#define FIFO_SIZE (512 * 1024)   // 512KB FIFO
 static void *frameBuffer = NULL;
 static GXRModeObj *rmode = NULL;
 
 int main(int argc, char **argv) {
+    CrashHandler_Install(); // install before anything else
+#ifdef _PC
+    printf("Starting...\n"); fflush(stdout);
+#endif
+#ifdef _PC
+    Platform_InitWindow("My3DSCraft", 640, 480);
+    rmode = VIDEO_GetPreferredMode(NULL);
+#else
     VIDEO_Init();
-    PAD_Init();
-
+    Input_Init();
     rmode = VIDEO_GetPreferredMode(NULL);
     frameBuffer = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
-
     VIDEO_Configure(rmode);
     VIDEO_SetNextFramebuffer(frameBuffer);
     VIDEO_SetBlack(FALSE);
     VIDEO_Flush();
     VIDEO_WaitVSync();
-
     void *gp_fifo = memalign(32, FIFO_SIZE);
     memset(gp_fifo, 0, FIFO_SIZE);
     GX_Init(gp_fifo, FIFO_SIZE);
+#endif
 
     GXColor background = {FOG_R, FOG_G, FOG_B, 0xff}; // sky color from config
     GX_SetCopyClear(background, 0x00ffffff);
@@ -81,6 +100,10 @@ int main(int argc, char **argv) {
     Player_Init(&myPlayer);
     Player_Respawn(&myPlayer, &myWorld);
 
+    // Init item drop system
+    ItemDrop_Init();
+    Particle_Init();
+
     // Init camera — position will be overridden by player each frame
     FreeCam myCam;
     Camera_Init(&myCam);
@@ -88,6 +111,13 @@ int main(int argc, char **argv) {
     // Init GUI
     GUIState gui;
     GUI_Init(&gui);
+    Sound_Init();
+    // Starting inventory: 32 TNT in slot 0, flint & steel in slot 1
+    gui.slotBlock[0] = BLOCK_TNT;
+    gui.slotCount[0] = 32;
+    gui.slotBlock[1] = BLOCK_FLINT_STEEL;
+    gui.slotCount[1] = 1;
+    TNT_Init();
 
     // Hand animation state
     HandAnim handAnim;
@@ -99,21 +129,42 @@ int main(int argc, char **argv) {
     int fps        = 0;
 
     while(1) {
-        PAD_ScanPads();
-        u32 down = PAD_ButtonsDown(0);
+#ifdef _PC
+        Platform_PollInput();
+        if (Platform_ShouldQuit()) goto game_exit;
+#endif
+        Input_Scan();
+        u32 down = Input_ButtonsDown();
         static u8 l_prev = 0, r_prev = 0;
 
         // START toggles pause
         if (down & PAD_BUTTON_START)
             gui.paused = !gui.paused;
+        // X opens/closes inventory (drop held item back on close)
+        if (down & PAD_BUTTON_X) {
+            if (gui.inventoryOpen) {
+                // Drop held item back to first free slot
+                if (gui.heldItemCount > 0) {
+                    for (int si = 0; si < INV_SLOTS; si++) {
+                        if (gui.slotCount[si] == 0) {
+                            gui.slotBlock[si] = gui.heldItemBlock;
+                            gui.slotCount[si] = gui.heldItemCount;
+                            gui.heldItemCount = 0;
+                            break;
+                        }
+                    }
+                }
+            }
+            gui.inventoryOpen = !gui.inventoryOpen;
+        }
 
 
 
         // Declare all frame variables up front so goto can skip safely
-        s8 sX = PAD_StickX(0);
-        s8 sY = PAD_StickY(0);
-        s8 cX = PAD_SubStickX(0);
-        s8 cY = PAD_SubStickY(0);
+        s8 sX = Input_StickX();
+        s8 sY = Input_StickY();
+        s8 cX = Input_CStickX();
+        s8 cY = Input_CStickY();
         int jump = (down & PAD_BUTTON_A) ? 1 : 0;
         u32 now = (u32)(ticks_to_secs(gettime()));
 
@@ -139,9 +190,161 @@ int main(int argc, char **argv) {
             jump = 0; // prevent A press from menu carrying into gameplay
             // Update trigger state even while paused so edge-detection
             // doesn't fire the moment the player unpauses
-            l_prev = PAD_TriggerL(0);
-            r_prev = PAD_TriggerR(0);
+            l_prev = Input_TriggerL();
+            r_prev = Input_TriggerR();
             // Skip game update while paused — jump to render
+            goto render_frame;
+        }
+
+        // ── Inventory + Crafting input (blocks ALL gameplay) ────────────────
+        if (gui.inventoryOpen) {
+            // LB switches focus: inventory <-> crafting grid
+            if (down & PAD_TRIGGER_L) {
+                gui.craftCursorOn = !gui.craftCursorOn;
+                if (gui.craftCursorOn) gui.craftCursorIdx = 0;
+            }
+
+            if (!gui.craftCursorOn) {
+                // ── Inventory navigation ─────────────────────────────────────
+                if (down & PAD_BUTTON_UP)
+                    gui.invCursorY = (gui.invCursorY > 0) ? gui.invCursorY-1 : INV_ROWS;
+                if (down & PAD_BUTTON_DOWN)
+                    gui.invCursorY = (gui.invCursorY < INV_ROWS) ? gui.invCursorY+1 : 0;
+                if (down & PAD_BUTTON_LEFT)
+                    gui.invCursorX = (gui.invCursorX-1+INV_COLS) % INV_COLS;
+                if (down & PAD_BUTTON_RIGHT)
+                    gui.invCursorX = (gui.invCursorX+1) % INV_COLS;
+
+                // A = grab whole stack / place whole stack / swap
+                // B = grab half stack
+                {
+                    int idx = (gui.invCursorY < INV_ROWS)
+                        ? (HOTBAR_SLOTS + gui.invCursorY * INV_COLS + gui.invCursorX)
+                        : gui.invCursorX;
+                    if (down & PAD_BUTTON_A) {
+                        if (gui.heldItemCount == 0) {
+                            // Pick up whole stack
+                            gui.heldItemBlock=gui.slotBlock[idx]; gui.heldItemCount=gui.slotCount[idx];
+                            gui.slotBlock[idx]=BLOCK_AIR; gui.slotCount[idx]=0;
+                        } else if (gui.slotCount[idx]==0 || gui.slotBlock[idx]==gui.heldItemBlock) {
+                            int space=64-gui.slotCount[idx];
+                            int place=(gui.heldItemCount<space)?gui.heldItemCount:space;
+                            gui.slotBlock[idx]=gui.heldItemBlock; gui.slotCount[idx]+=place;
+                            gui.heldItemCount-=place;
+                            if(gui.heldItemCount==0) gui.heldItemBlock=BLOCK_AIR;
+                        } else {
+                            u8 tb=gui.slotBlock[idx]; int tc=gui.slotCount[idx];
+                            gui.slotBlock[idx]=gui.heldItemBlock; gui.slotCount[idx]=gui.heldItemCount;
+                            gui.heldItemBlock=tb; gui.heldItemCount=tc;
+                        }
+                    } else if (down & PAD_BUTTON_B) {
+                        if (gui.heldItemCount == 0 && gui.slotCount[idx] > 0) {
+                            // Pick up half
+                            int half=(gui.slotCount[idx]+1)/2;
+                            gui.heldItemBlock=gui.slotBlock[idx]; gui.heldItemCount=half;
+                            gui.slotCount[idx]-=half;
+                            if(gui.slotCount[idx]==0) gui.slotBlock[idx]=BLOCK_AIR;
+                        } else if (gui.heldItemCount > 0) {
+                            // Place one
+                            if(gui.slotCount[idx]==0||gui.slotBlock[idx]==gui.heldItemBlock) {
+                                if(gui.slotCount[idx]<64) {
+                                    gui.slotBlock[idx]=gui.heldItemBlock; gui.slotCount[idx]++;
+                                    gui.heldItemCount--;
+                                    if(gui.heldItemCount==0) gui.heldItemBlock=BLOCK_AIR;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Y = quick-move to other section
+                if (down & PAD_BUTTON_Y) {
+                    int idx = (gui.invCursorY < INV_ROWS)
+                        ? (HOTBAR_SLOTS + gui.invCursorY * INV_COLS + gui.invCursorX)
+                        : gui.invCursorX;
+                    if (gui.slotCount[idx] > 0) {
+                        int start = (gui.invCursorY < INV_ROWS) ? 0 : HOTBAR_SLOTS;
+                        int end   = (gui.invCursorY < INV_ROWS) ? HOTBAR_SLOTS : INV_SLOTS;
+                        for (int si=start; si<end && gui.slotCount[idx]>0; si++) {
+                            if (gui.slotBlock[si]==gui.slotBlock[idx] && gui.slotCount[si]<64) {
+                                int mv=64-gui.slotCount[si]; if(mv>gui.slotCount[idx]) mv=gui.slotCount[idx];
+                                gui.slotCount[si]+=mv; gui.slotCount[idx]-=mv;
+                            }
+                        }
+                        for (int si=start; si<end && gui.slotCount[idx]>0; si++) {
+                            if (gui.slotCount[si]==0) {
+                                gui.slotBlock[si]=gui.slotBlock[idx]; gui.slotCount[si]=gui.slotCount[idx];
+                                gui.slotBlock[idx]=BLOCK_AIR; gui.slotCount[idx]=0;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // ── Crafting grid navigation ──────────────────────────────────
+                // Slot layout:  0 1
+                //               2 3  ==>  4 (output)
+                if (down & PAD_BUTTON_UP)
+                    gui.craftCursorIdx = (gui.craftCursorIdx==2)?0:(gui.craftCursorIdx==3)?1:(gui.craftCursorIdx==4)?1:gui.craftCursorIdx;
+                if (down & PAD_BUTTON_DOWN)
+                    gui.craftCursorIdx = (gui.craftCursorIdx==0)?2:(gui.craftCursorIdx==1)?3:(gui.craftCursorIdx==4)?3:gui.craftCursorIdx;
+                if (down & PAD_BUTTON_LEFT)
+                    gui.craftCursorIdx = (gui.craftCursorIdx==1)?0:(gui.craftCursorIdx==3)?2:(gui.craftCursorIdx==4)?1:gui.craftCursorIdx;
+                if (down & PAD_BUTTON_RIGHT)
+                    gui.craftCursorIdx = (gui.craftCursorIdx==0)?1:(gui.craftCursorIdx==2)?3:(gui.craftCursorIdx==1||gui.craftCursorIdx==3)?4:gui.craftCursorIdx;
+
+                // A = grab/place whole  B = grab half
+                {
+                    int ci = gui.craftCursorIdx;
+                    u8*  cBlock = (ci<4) ? &gui.craftGrid[ci]  : &gui.craftResult;
+                    int* cCount = (ci<4) ? &gui.craftCount[ci] : &gui.craftResultCount;
+                    int  isOutput = (ci == 4);
+
+                    // recheck is inlined below as CRAFT_RECHECK
+
+                    if (down & PAD_BUTTON_A) {
+                        if (isOutput) {
+                            if(gui.craftResult!=0 && gui.heldItemCount==0) {
+                                gui.heldItemBlock=gui.craftResult; gui.heldItemCount=gui.craftResultCount;
+                                Crafting_Consume(gui.craftGrid,gui.craftCount,4); { CraftResult _cr; if(Crafting_Check2x2(gui.craftGrid,&_cr)){ gui.craftResult=_cr.outBlock; gui.craftResultCount=_cr.outCount; } else { gui.craftResult=0; gui.craftResultCount=0; } }
+                            }
+                        } else if (gui.heldItemCount==0) {
+                            gui.heldItemBlock=gui.craftGrid[ci]; gui.heldItemCount=gui.craftCount[ci];
+                            gui.craftGrid[ci]=0; gui.craftCount[ci]=0; { CraftResult _cr; if(Crafting_Check2x2(gui.craftGrid,&_cr)){ gui.craftResult=_cr.outBlock; gui.craftResultCount=_cr.outCount; } else { gui.craftResult=0; gui.craftResultCount=0; } }
+                        } else if (gui.craftCount[ci]==0||gui.craftGrid[ci]==gui.heldItemBlock) {
+                            int space=64-gui.craftCount[ci];
+                            int place=(gui.heldItemCount<space)?gui.heldItemCount:space;
+                            gui.craftGrid[ci]=gui.heldItemBlock; gui.craftCount[ci]+=place;
+                            gui.heldItemCount-=place; if(gui.heldItemCount==0) gui.heldItemBlock=0;
+                            { CraftResult _cr; if(Crafting_Check2x2(gui.craftGrid,&_cr)){ gui.craftResult=_cr.outBlock; gui.craftResultCount=_cr.outCount; } else { gui.craftResult=0; gui.craftResultCount=0; } }
+                        } else {
+                            u8 tb=gui.craftGrid[ci]; int tc=gui.craftCount[ci];
+                            gui.craftGrid[ci]=gui.heldItemBlock; gui.craftCount[ci]=gui.heldItemCount;
+                            gui.heldItemBlock=tb; gui.heldItemCount=tc; { CraftResult _cr; if(Crafting_Check2x2(gui.craftGrid,&_cr)){ gui.craftResult=_cr.outBlock; gui.craftResultCount=_cr.outCount; } else { gui.craftResult=0; gui.craftResultCount=0; } }
+                        }
+                    } else if ((down & PAD_BUTTON_B) && !isOutput) {
+                        if(gui.heldItemCount==0 && gui.craftCount[ci]>0) {
+                            int half=(gui.craftCount[ci]+1)/2;
+                            gui.heldItemBlock=gui.craftGrid[ci]; gui.heldItemCount=half;
+                            gui.craftCount[ci]-=half;
+                            if(gui.craftCount[ci]==0) gui.craftGrid[ci]=0;
+                            { CraftResult _cr; if(Crafting_Check2x2(gui.craftGrid,&_cr)){ gui.craftResult=_cr.outBlock; gui.craftResultCount=_cr.outCount; } else { gui.craftResult=0; gui.craftResultCount=0; } }
+                        } else if(gui.heldItemCount>0) {
+                            if(gui.craftCount[ci]==0||gui.craftGrid[ci]==gui.heldItemBlock) {
+                                if(gui.craftCount[ci]<64) {
+                                    gui.craftGrid[ci]=gui.heldItemBlock; gui.craftCount[ci]++;
+                                    gui.heldItemCount--; if(gui.heldItemCount==0) gui.heldItemBlock=0;
+                                    { CraftResult _cr; if(Crafting_Check2x2(gui.craftGrid,&_cr)){ gui.craftResult=_cr.outBlock; gui.craftResultCount=_cr.outCount; } else { gui.craftResult=0; gui.craftResultCount=0; } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Block ALL gameplay input
+            jump = 0;
+            l_prev = Input_TriggerL();
+            r_prev = Input_TriggerR();
             goto render_frame;
         }
 
@@ -153,11 +356,35 @@ int main(int argc, char **argv) {
         }
 
         // ── Hotbar / gameplay input ───────────────────────────────────────
-        // D-pad cycles hotbar
+        // D-pad left/right cycles hotbar
         if (down & PAD_BUTTON_LEFT)
             gui.selectedSlot = (gui.selectedSlot - 1 + HOTBAR_SLOTS) % HOTBAR_SLOTS;
         if (down & PAD_BUTTON_RIGHT)
             gui.selectedSlot = (gui.selectedSlot + 1) % HOTBAR_SLOTS;
+
+        // D-pad down = drop one item; hold Y while pressing down = drop whole stack
+        if (down & PAD_BUTTON_DOWN) {
+            int slot = gui.selectedSlot;
+            if (gui.slotCount[slot] > 0 && gui.slotBlock[slot] != BLOCK_AIR
+                && gui.slotBlock[slot] != BLOCK_FLINT_STEEL) { // tools cant be dropped
+                u8 block = gui.slotBlock[slot];
+                // Hold Y = drop whole stack, otherwise drop one
+                u8 held_y = Input_ButtonsHeld() & PAD_BUTTON_Y;
+                int dropCount = (held_y && gui.slotCount[slot] > 1)
+                    ? gui.slotCount[slot] : 1;
+                gui.slotCount[slot] -= dropCount;
+                if (gui.slotCount[slot] <= 0) {
+                    gui.slotCount[slot] = 0;
+                    gui.slotBlock[slot] = BLOCK_AIR;
+                }
+                // Spawn drop(s) in front of the player
+                float dropX = myPlayer.pos.x + myCam.forward.x * 0.8f;
+                float dropY = myPlayer.pos.y + 1.0f;
+                float dropZ = myPlayer.pos.z + myCam.forward.z * 0.8f;
+                for (int d = 0; d < dropCount; d++)
+                    ItemDrop_Spawn(block, dropX, dropY, dropZ, 90);
+            }
+        }
 
         // Inputs
         // (sX/sY/cX/cY/jump declared above)
@@ -184,17 +411,22 @@ int main(int argc, char **argv) {
         // ── 3D World ────────────────────────────────────────────────────────
         GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
         GX_SetZMode(GX_TRUE, GX_LEQUAL, GX_TRUE);
-        World_RebuildDirty(&myWorld);
         Camera_Apply(&myCam);
         World_Render(&myWorld);
+
+        // Update + render item drops
+        ItemDrop_Update(&myWorld, &myPlayer, &gui);
+        ItemDrop_Render();
+        Particle_Update();
+        Particle_Render();
 
         // Raycast from camera
         RayResult ray = Raycast(&myWorld, myCam.pos, myCam.forward);
         Raycast_DrawHighlight(&ray, breakProgress);
 
         // ── Input ────────────────────────────────────────────────────────
-        u8 l_now = PAD_TriggerL(0);
-        u8 r_now = PAD_TriggerR(0);
+        u8 l_now = Input_TriggerL();
+        u8 r_now = Input_TriggerR();
         int triggerSwing = 0;
 
         // ── R trigger held = break block (hold-to-mine) ──────────────────
@@ -218,22 +450,18 @@ int main(int argc, char **argv) {
                     gui.score += 10;
                     breakProgress = 0.0f;
                     breakX = breakY = breakZ = -1;
-                    // Add to inventory — find existing stack or empty slot
-                    int added = 0;
-                    for (int si = 0; si < INV_SLOTS && !added; si++) {
-                        if (gui.slotBlock[si] == broken && gui.slotCount[si] < 64) {
-                            gui.slotCount[si]++;
-                            added = 1;
-                        }
+                    // Spawn item drop at the broken block position
+                    // Determine what this block drops
+                    u8 dropBlock = broken;
+                    if (broken == 1) dropBlock = 2;  // grass -> dirt
+                    // Leaves drop nothing (need shears)
+                    if (broken != 5) {
+                        ItemDrop_Spawn(dropBlock,
+                            (float)ray.bx, (float)ray.by, (float)ray.bz, 30);
                     }
-                    // No existing stack — find first empty slot
-                    for (int si = 0; si < INV_SLOTS && !added; si++) {
-                        if (gui.slotCount[si] == 0) {
-                            gui.slotBlock[si] = broken;
-                            gui.slotCount[si] = 1;
-                            added = 1;
-                        }
-                    }
+                    // Spawn break particles
+                    Particle_SpawnBlockBreak(ray.bx, ray.by, ray.bz, broken);
+                    Sound_Play(SFX_BLOCK_BREAK);
                 }
             } else {
                 // New block targeted — reset and start fresh
@@ -246,21 +474,30 @@ int main(int argc, char **argv) {
             breakX = breakY = breakZ = -1;
         }
 
-        // ── L trigger = place block (single press) ───────────────────────
+        // ── L trigger = place block / use tool (single press) ──────────────
         if (l_now > 100 && l_prev <= 100 && ray.hit) {
             u8 place = gui.slotBlock[gui.selectedSlot];
             if (gui.slotCount[gui.selectedSlot] > 0 && place != BLOCK_AIR) {
-                float half = PLAYER_WIDTH * 0.5f;
-                bool overlapX = (ray.px + 1 > myPlayer.pos.x - half) && (ray.px < myPlayer.pos.x + half);
-                bool overlapY = (ray.py + 1 > myPlayer.pos.y)         && (ray.py < myPlayer.pos.y + PLAYER_HEIGHT);
-                bool overlapZ = (ray.pz + 1 > myPlayer.pos.z - half)  && (ray.pz < myPlayer.pos.z + half);
-                bool insidePlayer = overlapX && overlapY && overlapZ;
-                if (!insidePlayer) {
-                    if (World_SetBlock(&myWorld, ray.px, ray.py, ray.pz, place)) {
+                if (place == BLOCK_FLINT_STEEL) {
+                    // Use flint & steel: ignite TNT the ray is pointing at
+                    if (World_GetBlock(&myWorld, ray.bx, ray.by, ray.bz) == BLOCK_TNT) {
+                        TNT_Ignite(&myWorld, ray.bx, ray.by, ray.bz);
                         triggerSwing = 1;
-                        gui.slotCount[gui.selectedSlot]--;
-                        if (gui.slotCount[gui.selectedSlot] < 0)
-                            gui.slotCount[gui.selectedSlot] = 0;
+                    }
+                } else {
+                    // Normal block placement
+                    float half = PLAYER_WIDTH * 0.5f;
+                    bool overlapX = (ray.px + 1 > myPlayer.pos.x - half) && (ray.px < myPlayer.pos.x + half);
+                    bool overlapY = (ray.py + 1 > myPlayer.pos.y)         && (ray.py < myPlayer.pos.y + PLAYER_HEIGHT);
+                    bool overlapZ = (ray.pz + 1 > myPlayer.pos.z - half)  && (ray.pz < myPlayer.pos.z + half);
+                    bool insidePlayer = overlapX && overlapY && overlapZ;
+                    if (!insidePlayer) {
+                        if (World_SetBlock(&myWorld, ray.px, ray.py, ray.pz, place)) {
+                            triggerSwing = 1;
+                            gui.slotCount[gui.selectedSlot]--;
+                            if (gui.slotCount[gui.selectedSlot] < 0)
+                                gui.slotCount[gui.selectedSlot] = 0;
+                        }
                     }
                 }
             }
@@ -322,9 +559,11 @@ int main(int argc, char **argv) {
                            "PRESS A", 220, 220, 220);
         }
 
+        TNT_Render();
         GUI_DrawScore(rmode, &gui);
         GUI_DrawCrosshair(rmode);
         if (gui.paused) GUI_DrawPauseMenu(rmode, &gui);
+        if (gui.inventoryOpen) GUI_DrawInventory(rmode, &gui);
         GUI_DrawHotbar(rmode, &gui);
         GUI_DrawHealth(rmode, &gui);
         GUI_DrawDebug(rmode,
@@ -334,12 +573,23 @@ int main(int argc, char **argv) {
         // ── Hand — drawn last so it's always on top of GUI ──────────────────
         // ── Present ─────────────────────────────────────────────────────────
         GX_DrawDone();
+#ifdef _PC
+        GX_CopyDisp(NULL, GX_TRUE);
+#else
         GX_CopyDisp(frameBuffer, GX_TRUE);
         GX_Flush();
         VIDEO_SetNextFramebuffer(frameBuffer);
         VIDEO_Flush();
         VIDEO_WaitVSync();
+#endif
+        // ── Between frames: update world state (safe to call GX here) ───────
+        TNT_Update(&myWorld, &myPlayer);
+        World_RebuildDirty(&myWorld);
     }
     game_exit:
+    Sound_Shutdown();
+#ifdef _PC
+    Platform_DestroyWindow();
+#endif
     return 0;
 }

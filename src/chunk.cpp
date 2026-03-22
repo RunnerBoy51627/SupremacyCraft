@@ -60,6 +60,14 @@ static int block_face_tex(u8 block, int face) {
         case BLOCK_STONE:  return TEX_STONE;
         case BLOCK_WOOD:   return TEX_WOOD;
         case BLOCK_LEAF:   return TEX_LEAVES;
+        case BLOCK_PLANK:  return TEX_PLANKS;
+        case BLOCK_CRAFT:
+            if (face == 0) return TEX_CRAFTING_TOP;
+            return TEX_CRAFTING_SIDE;
+        case BLOCK_TNT:
+            if (face == 0) return TEX_TNT_TOP;
+            if (face == 1) return TEX_TNT_BOTTOM;
+            return TEX_TNT_SIDE;
         default:           return TEX_DIRT;
     }
 }
@@ -128,9 +136,13 @@ static void place_tree(Chunk* chunk, int x, int y, int z) {
 void Chunk_Generate(Chunk* chunk, int worldX, int worldZ) {
     chunk->worldX  = worldX;
     chunk->worldZ  = worldZ;
-    chunk->dirty   = 1;
-    chunk->mesh    = NULL;
+    chunk->dirty     = 1;
+    chunk->mesh      = NULL;
     chunk->meshVerts = 0;
+#ifndef _PC
+    chunk->dispList     = NULL;
+    chunk->dispListSize = 0;
+#endif
 
     // Zero all blocks to AIR
     memset(chunk->blocks, BLOCK_AIR, sizeof(chunk->blocks));
@@ -267,6 +279,9 @@ void Chunk_BuildMesh(Chunk* chunk,
 
     chunk->meshVerts = n;
     DCFlushRange(chunk->mesh, sizeof(ChunkVertex) * n);
+
+    // Display lists disabled - vertex loop used on GC
+
     chunk->dirty = 0;
 }
 

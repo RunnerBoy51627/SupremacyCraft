@@ -43,11 +43,17 @@ void World_Generate(World* world) {
 
 void World_Render(World* world) {
     for (int cx = 0; cx < WORLD_W; cx++)
-    for (int cz = 0; cz < WORLD_D; cz++)
+    for (int cz = 0; cz < WORLD_D; cz++) {
         Chunk_Render(&world->chunks[cx][cz]);
+#ifndef _PC
+        GX_Flush(); // flush FIFO between chunks to prevent overflow
+#endif
+    }
 }
 
 void World_RebuildDirty(World* world) {
+    // Rebuild at most one chunk per frame to avoid frame hitches
+    // Priority: rebuild the chunk closest to the center of the world first
     for (int cx = 0; cx < WORLD_W; cx++)
     for (int cz = 0; cz < WORLD_D; cz++) {
         Chunk* c = &world->chunks[cx][cz];
@@ -55,6 +61,7 @@ void World_RebuildDirty(World* world) {
         Chunk *nXN, *nXP, *nZN, *nZP;
         get_neighbors(world, cx, cz, &nXN, &nXP, &nZN, &nZP);
         Chunk_BuildMesh(c, nXN, nXP, nZN, nZP);
+        return; // only one per frame
     }
 }
 

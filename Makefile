@@ -1,79 +1,152 @@
-# Makefile for GameCube / devkitPPC (C++)
-# Target: SupremacyProject
+# ── My3DSCraft — Universal Makefile ──────────────────────────────────────────
+# Usage:
+#   make                          → GameCube build (default)
+#   make PLATFORM=pc              → PC build
+#   make PLATFORM=pc GLM_INCLUDE=./glm
+#   make clean                    → clean all builds
+# ─────────────────────────────────────────────────────────────────────────────
 
-# --- Environment Setup ---
-ifeq ($(strip $(DEVKITPRO)),)
-$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=/c/devkitPro")
-endif
-DEVKITPPC := $(DEVKITPRO)/devkitPPC
-LIBOGC    := $(DEVKITPRO)/libogc
+PLATFORM ?= gc
+TARGET    := My3DSCraft
+BUILD     := build/$(PLATFORM)
+SHADERS   := shaders/
 
-# --- Tools ---
-CXX      := $(DEVKITPPC)/bin/powerpc-eabi-g++
-LD       := $(DEVKITPPC)/bin/powerpc-eabi-g++
-ELF2DOL  := $(DEVKITPRO)/tools/bin/elf2dol
-BIN2S    := $(DEVKITPRO)/tools/bin/bin2s
-AS       := $(DEVKITPPC)/bin/powerpc-eabi-as
-
-# --- Project Files ---
-TARGET  := SupremacyCraft
-BUILD   := build
-SOURCES := $(wildcard src/*.cpp)
-INCLUDE := include
-
-# --- Data / Asset Embedding ---
-# Any file placed in data/ will be embedded into the binary.
-# A file like data/textures/grass.png becomes:
-#   extern const u8 grass_png[];
-#   extern const u32 grass_png_size;
-DATADIR   := data
-# Generate a .s and .o for each data file in build/data/
-
-# --- Compiler & Linker Flags ---
-PORTLIBS  := $(DEVKITPRO)/portlibs/ppc
-
-CXXFLAGS := -Wall -O2 -I$(INCLUDE) -I$(LIBOGC)/include -I$(BUILD)/data -I$(PORTLIBS)/include \
-            -DGEKKO -D_GC -mrvl -mcpu=750 -meabi -mhard-float
-LDFLAGS  := -L$(LIBOGC)/lib/cube -L$(PORTLIBS)/lib -logc -lpng -lz -lm
-
-# --- Build Rules ---
-# Auto-generate texture atlas before building
+GAME_SRCS := $(wildcard src/*.cpp)
 ATLAS     := data/textures/atlas.png
+
+# Default goal must be declared before any file rules
+.DEFAULT_GOAL := all
 ATLAS_H   := include/atlas_regions.h
-ATLAS_SRC := $(filter-out data/textures/atlas.png,$(wildcard data/textures/*.png))
-DATAFILES := $(ATLAS)  # only embed the atlas
-DATAOBJS  := $(patsubst $(DATADIR)/%,$(BUILD)/data/%.o,$(DATAFILES))
-GCNTARGET := $(BUILD)/$(TARGET).dol
-ELF       := $(BUILD)/$(TARGET).elf
+ATLAS_SRC := $(filter-out $(ATLAS),$(wildcard data/textures/*.png))
 
-all: $(GCNTARGET)
+# ── Atlas generation ─────────────────────────────────────────────────────────
+.PHONY: all clean hbc
 
-$(GCNTARGET): $(ELF)
-	@echo "Converting ELF to DOL..."
-	$(ELF2DOL) $(ELF) $(GCNTARGET)
-	@echo "Build Complete: $(GCNTARGET)"
-
-# Link: include data object files alongside source objects
-$(ATLAS) $(ATLAS_H): $(ATLAS_SRC)
+gen_atlas: $(ATLAS_SRC)
 	@echo "Generating texture atlas..."
 	@python3 tools/gen_atlas.py
 
-$(ELF): $(SOURCES) $(DATAOBJS)
+$(ATLAS_H): gen_atlas
+
+# ═════════════════════════════════════════════════════════════════════════════
+ifeq ($(PLATFORM), pc)
+# ── PC Build ─────────────────────────────────────────────────────────────────
+
+PLATFORM_DIR := src/platform/pc
+SOURCES      := $(GAME_SRCS) \
+                $(PLATFORM_DIR)/pc_window.cpp \
+                $(PLATFORM_DIR)/pc_input.cpp
+
+GLM_INCLUDE ?= /usr/include
+INCLUDE     := -Iinclude -I$(BUILD)/data -I$(PLATFORM_DIR) \
+               -Isrc/platform -I$(GLM_INCLUDE)
+
+UNAME := $(shell uname -s)
+ifeq ($(UNAME), Darwin)
+    SDL_CFLAGS := $(shell sdl2-config --cflags)
+    SDL_LIBS   := $(shell sdl2-config --libs) -framework OpenGL
+    CXX        := g++
+else ifeq ($(UNAME), Linux)
+    SDL_CFLAGS := $(shell sdl2-config --cflags)
+    SDL_LIBS   := $(shell sdl2-config --libs) -lGL -lGLEW -lGLU
+    CXX        := g++
+else
+    MSYS2_PREFIX := $(if $(MSYSTEM_PREFIX),$(MSYSTEM_PREFIX),/mingw64)
+    SDL_CFLAGS   := -I$(MSYS2_PREFIX)/include -I$(MSYS2_PREFIX)/include/SDL2
+    SDL_LIBS     := -L$(MSYS2_PREFIX)/lib -lmingw32 -lSDL2main -lSDL2 \
+                    -lglew32 -lopengl32 -lglu32 -lSDL2_mixer
+    CXX          := $(MSYS2_PREFIX)/bin/g++
+endif
+
+CXXFLAGS := -Wall -O2 -std=c++11 -fext-numeric-literals \
+            $(INCLUDE) $(SDL_CFLAGS) -D_PC -DPLATFORM_PC
+LDFLAGS  := $(SDL_LIBS) -lpng -lz -lm
+
+ATLAS_C   := $(BUILD)/data/atlas_png.cpp
+ATLAS_OBJ := $(BUILD)/data/atlas_png.o
+
+all: $(ATLAS_H) $(BUILD)/$(TARGET)
+
+$(ATLAS_C): $(ATLAS_H)
+	@mkdir -p $(BUILD)/data
+	@echo "Embedding atlas (PC)..."
+	@python3 tools/bin2cpp.py $(ATLAS) $(ATLAS_C) atlas_png
+
+$(ATLAS_OBJ): $(ATLAS_C)
+	$(CXX) -c $(ATLAS_C) -o $(ATLAS_OBJ)
+
+$(BUILD)/$(TARGET): $(SOURCES) $(ATLAS_OBJ)
 	@mkdir -p $(BUILD)
-	@echo "Compiling..."
-	$(CXX) $(CXXFLAGS) $(SOURCES) $(DATAOBJS) -o $(ELF) $(LDFLAGS)
+	@echo "Compiling PC..."
+	$(CXX) $(CXXFLAGS) -O1 src/itemdrop.cpp -c -o $(BUILD)/itemdrop.o
+	$(CXX) $(CXXFLAGS) $(filter-out src/itemdrop.cpp,$(SOURCES)) $(ATLAS_OBJ) $(BUILD)/itemdrop.o -o $@ $(LDFLAGS)
+	@cp -r $(SHADERS) $(BUILD)/shaders
+	@echo "Done: $@"
 
-# Rule: convert any data file → .s via bin2s → .o via as
-# e.g. data/textures/grass.png → build/data/textures/grass.png.o
-$(BUILD)/data/%.o: $(DATADIR)/% $(ATLAS_H)
+# ═════════════════════════════════════════════════════════════════════════════
+else
+# ── GameCube Build ────────────────────────────────────────────────────────────
+
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "DEVKITPRO not set. export DEVKITPRO=/c/devkitPro")
+endif
+
+DEVKITPPC := $(DEVKITPRO)/devkitPPC
+LIBOGC    := $(DEVKITPRO)/libogc
+PORTLIBS  := $(DEVKITPRO)/portlibs/ppc
+
+CXX     := $(DEVKITPPC)/bin/powerpc-eabi-g++
+ELF2DOL := $(DEVKITPRO)/tools/bin/elf2dol
+BIN2S   := $(DEVKITPRO)/tools/bin/bin2s
+AS      := $(DEVKITPPC)/bin/powerpc-eabi-as
+
+SOURCES  := $(GAME_SRCS)
+CXXFLAGS := -Wall -O2 \
+            -Iinclude -I$(LIBOGC)/include -I$(BUILD)/data \
+            -I$(PORTLIBS)/include -Isrc/platform \
+            -DGEKKO -D_GC -DHAVE_WIIMOTE -mrvl -mcpu=750 -meabi -mhard-float
+WII_LIBS := $(if $(wildcard $(LIBOGC)/lib/wii/libwiiuse.a),-lwiiuse -lbte)
+LDFLAGS  := -L$(LIBOGC)/lib/wii -L$(LIBOGC)/lib/cube -L$(PORTLIBS)/lib \
+            $(WII_LIBS) -lasnd -logc -lpng -lz -lm
+
+ATLAS_OBJ := $(BUILD)/data/textures/atlas.png.o
+ELF       := $(BUILD)/$(TARGET).elf
+DOL       := $(BUILD)/$(TARGET).dol
+
+all: $(ATLAS_H) $(DOL)
+
+$(DOL): $(ELF)
+	@echo "Converting to DOL..."
+	$(ELF2DOL) $(ELF) $(DOL)
+	@echo "Done: $@"
+
+$(ELF): $(SOURCES) $(ATLAS_OBJ)
+	@mkdir -p $(BUILD)
+	@echo "Compiling GC..."
+	$(CXX) $(CXXFLAGS) $(SOURCES) $(ATLAS_OBJ) -o $(ELF) $(LDFLAGS)
+
+$(ATLAS_OBJ): $(ATLAS) $(ATLAS_H)
 	@mkdir -p $(dir $@)
-	@echo Embedding $<...
-	$(BIN2S) $< > $(BUILD)/data/$*.s
-	$(AS) $(BUILD)/data/$*.s -o $@
+	@echo "Embedding atlas..."
+	$(BIN2S) $(ATLAS) > $(BUILD)/data/textures/atlas.png.s
+	$(AS) $(BUILD)/data/textures/atlas.png.s -o $(ATLAS_OBJ)
 
-# Dummy rule to avoid duplicate
+endif
+# ═════════════════════════════════════════════════════════════════════════════
+
 clean:
-	@echo "Cleaning..."
-	rm -rf $(BUILD)
+	@echo "Cleaning all builds..."
+	rm -rf build
 
-.PHONY: all clean
+# ── Homebrew Channel package ─────────────────────────────────────────────────
+# Creates apps/My3DSCraft/ folder ready to copy to SD card
+# Usage: make hbc
+HBC_DIR := apps/My3DSCraft
+
+hbc: $(DOL)
+	@mkdir -p $(HBC_DIR)
+	@cp $(DOL) $(HBC_DIR)/boot.dol
+	@cp hbc/meta.xml $(HBC_DIR)/meta.xml
+	@if [ -f hbc/icon.png ]; then cp hbc/icon.png $(HBC_DIR)/icon.png; fi
+	@echo "HBC package ready: $(HBC_DIR)/"
+	@echo "Copy the apps/ folder to the root of your SD card"

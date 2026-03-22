@@ -1,4 +1,5 @@
 #include "player.h"
+#include "sound.h"
 #include "utils.h"
 #include "chunk.h"
 #include "world.h"
@@ -48,8 +49,6 @@ void Player_Init(Player* player) {
     player->invincible   = 0;
     player->fall_speed_peak = 0.0f;
     player->dead         = 0;
-    player->bobPhase     = 0.0f;
-    player->bobIntensity = 0.0f;
 }
 
 void Player_Respawn(Player* player, World* world) {
@@ -70,8 +69,6 @@ void Player_Respawn(Player* player, World* world) {
     player->grounded     = 0;
     player->dead         = 0;
     player->fall_speed_peak = 0.0f;
-    player->bobPhase     = 0.0f;
-    player->bobIntensity = 0.0f;
     player->invincible   = 60; // brief grace period so landing doesn't immediately hurt
 }
 
@@ -79,7 +76,8 @@ void Player_Damage(Player* player, int amount) {
     if (player->invincible > 0 || player->dead) return;
     player->health -= amount;
     if (player->health < 0) player->health = 0;
-    player->invincible = 30; // ~0.5s at 60fps
+    player->invincible = 30;
+    Sound_Play(SFX_PLAYER_HIT);
 }
 
 int Player_IsUnderwater(Player* player, World* world) {
@@ -169,17 +167,7 @@ void Player_Update(Player* player, World* world,
         player->velocity.y = 0.0f;
     }
 
-    // 5. View bob — advances when grounded and moving
-    {
-        float moving = (moveX*moveX + moveZ*moveZ > 0.0001f) ? 1.0f : 0.0f;
-        float targetIntensity = (player->grounded && moving) ? 1.0f : 0.0f;
-        float lerpRate = (targetIntensity > player->bobIntensity) ? 0.2f : 0.05f;
-        player->bobIntensity += (targetIntensity - player->bobIntensity) * lerpRate;
-        if (player->grounded && moving)
-            player->bobPhase += 0.65f;
-    }
-
-    // 6. World boundary clamp (don't fall off the edge of loaded chunks)
+    // 5. World boundary clamp (don't fall off the edge of loaded chunks)
     float worldMaxX = (float)(3 * CHUNK_SIZE);
     float worldMaxZ = (float)(3 * CHUNK_SIZE);
     if (player->pos.x < 0.5f)         player->pos.x = 0.5f;
@@ -190,35 +178,8 @@ void Player_Update(Player* player, World* world,
 
 // ── Camera sync ──────────────────────────────────────────────────────────────
 void Player_ApplyToCamera(Player* player, FreeCam* cam) {
+    // Eyes are PLAYER_EYE_Y above feet
     cam->pos.x = player->pos.x;
     cam->pos.y = player->pos.y + PLAYER_EYE_Y;
     cam->pos.z = player->pos.z;
-
-    // ── View bobbing ──────────────────────────────────────────────────
-    float intensity = player->bobIntensity;
-    if (intensity > 0.001f) {
-        float phase = player->bobPhase * (3.14159265f / 180.0f);
-        // Vertical: one full cycle per step (~2x the horizontal)
-        float bobY    = sinf(phase * 2.0f) * 0.04f * intensity;
-        // Horizontal sway: half the frequency
-        float bobX    = sinf(phase)        * 0.02f * intensity;
-        // Roll: subtle tilt in sync with horizontal sway
-        float bobRoll = sinf(phase)        * 1.5f  * intensity; // degrees
-
-        cam->pos.y += bobY;
-
-        // Horizontal bob perpendicular to forward (right vector)
-        float rightX =  cam->forward.z;
-        float rightZ = -cam->forward.x;
-        cam->pos.x += rightX * bobX;
-        cam->pos.z += rightZ * bobX;
-
-        // Roll: rotate up vector around forward axis
-        float rollRad = bobRoll * (3.14159265f / 180.0f);
-        cam->up.x = -sinf(rollRad) * cam->forward.z;
-        cam->up.y =  cosf(rollRad);
-        cam->up.z =  sinf(rollRad) * cam->forward.x;
-    } else {
-        cam->up = (guVector){0.0f, 1.0f, 0.0f};
-    }
 }

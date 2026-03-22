@@ -50,9 +50,14 @@ void GUI_Init(GUIState* gui) {
         BLOCK_DIRT,  BLOCK_STONE
     };
     for (int i = 0; i < INV_SLOTS; i++) {
-        gui->slotBlock[i] = BLOCK_AIR;  // survival: all slots empty
+        gui->slotBlock[i] = BLOCK_AIR;
         gui->slotCount[i] = 0;
     }
+    gui->inventoryOpen  = 0;
+    gui->invCursorX     = 0;
+    gui->invCursorY     = 0;
+    gui->heldItemBlock  = 0;
+    gui->heldItemCount  = 0;
 }
 
 // ─── Projection Switch ───────────────────────────────────────────────────────
@@ -139,6 +144,16 @@ static void get_block_colors(u8 block,
             *lr=35;  *lg=90;  *lb=25;
             *rr=42;  *rg=105; *rb=30;
             break;
+        case 9: // TNT — red top, dark red sides
+            *tr=180;*tg=60;*tb=60;
+            *lr=160;*lg=25;*lb=25;
+            *rr=200;*rg=30;*rb=30;
+            break;
+        case 10: // Flint & Steel — grey metallic
+            *tr=160;*tg=160;*tb=165;
+            *lr=120;*lg=120;*lb=125;
+            *rr=140;*rg=140;*rb=145;
+            break;
         default:
             *tr=*tg=*tb=180;
             *lr=*lg=*lb=120;
@@ -169,11 +184,11 @@ static void draw_block_icon(float x, float y, float size, u8 block) {
 void GUI_DrawHotbar(GXRModeObj* rmode, GUIState* gui) {
     float slotSize = 40.0f;
     float slotGap  = 4.0f;
-    float totalW   = INV_SLOTS * slotSize + (INV_SLOTS - 1) * slotGap;
+    float totalW   = HOTBAR_SLOTS * slotSize + (HOTBAR_SLOTS - 1) * slotGap;
     float startX   = (SCREEN_W - totalW) / 2.0f;
     float startY   = SCREEN_H - slotSize - 12.0f;
 
-    for (int i = 0; i < INV_SLOTS; i++) {
+    for (int i = 0; i < HOTBAR_SLOTS; i++) {
         float x = startX + i * (slotSize + slotGap);
 
         // Slot background
@@ -445,6 +460,141 @@ void GUI_DrawPauseMenu(GXRModeObj* rmode, GUIState* gui) {
 }
 
 // ─── Score display ────────────────────────────────────────────────────────────
+
+// ─── Inventory Screen ────────────────────────────────────────────────────────
+
+void GUI_DrawInventory(GXRModeObj* rmode, GUIState* gui) {
+    float slotSize = 36.0f;
+    float pad      = 3.0f;
+    float gap      = 4.0f;
+    float panelW   = INV_COLS * slotSize + 2.0f;
+    float hotbarH  = slotSize + 4.0f;
+    float mainH    = INV_ROWS * slotSize;
+    float panelH   = mainH + gap + hotbarH + 4.0f;
+    float panelX   = (SCREEN_W - panelW) / 2.0f;
+    float panelY   = (SCREEN_H - panelH) / 2.0f;
+
+    // Dark overlay
+    draw_rect(0, 0, SCREEN_W, SCREEN_H, 0, 0, 0, 160);
+
+    // ── Main inventory 3x9 ───────────────────────────────────────────
+    for (int row = 0; row < INV_ROWS; row++) {
+        for (int col = 0; col < INV_COLS; col++) {
+            int idx = HOTBAR_SLOTS + row * INV_COLS + col;
+            float sx = panelX + 1.0f + col * slotSize;
+            float sy = panelY + row * slotSize;
+            draw_rect(sx, sy, slotSize, slotSize, 30, 30, 30, 220);
+            int isCursor = (gui->invCursorX == col && gui->invCursorY == row);
+            if (isCursor)
+                draw_rect_outline(sx, sy, slotSize, slotSize, 2, 255,255,255,255);
+            else
+                draw_rect_outline(sx, sy, slotSize, slotSize, 1, 55,55,55,200);
+            if (gui->slotCount[idx] > 0 && gui->slotBlock[idx] != BLOCK_AIR)
+                draw_block_icon(sx+pad, sy+pad, slotSize-pad*2, gui->slotBlock[idx]);
+            if (gui->slotCount[idx] > 0) {
+                char buf[8]; int n = gui->slotCount[idx];
+                int len=(n>=100)?3:(n>=10)?2:1;
+                buf[0]=(n/100)%10+'0'; buf[1]=(n/10)%10+'0';
+                buf[2]=n%10+'0'; buf[3]=0;
+                const char* ns=buf+(3-len); float sc=1.0f,tw=len*6*sc;
+                draw_string(sx+slotSize-tw-2+1,sy+slotSize-7*sc-2+1,sc,ns,0,0,0);
+                draw_string(sx+slotSize-tw-2,  sy+slotSize-7*sc-2,  sc,ns,255,255,255);
+            }
+        }
+    }
+
+    // ── Hotbar row ────────────────────────────────────────────────────
+    float barY = panelY + mainH + gap;
+    float barX = panelX;
+    draw_rect(barX, barY, panelW, hotbarH, 30, 30, 30, 220);
+    draw_rect_outline(barX, barY, panelW, hotbarH, 1, 85,85,85,255);
+    draw_rect(barX+1, barY+1, panelW-2, 1, 130,130,130,160);
+    for (int col = 0; col < HOTBAR_SLOTS; col++) {
+        float sx = barX + 1.0f + col * slotSize;
+        float sy = barY + 2.0f;
+        int isCursor = (gui->invCursorX == col && gui->invCursorY == INV_ROWS);
+        if (isCursor)
+            draw_rect_outline(sx, sy, slotSize, slotSize, 2, 255,255,255,255);
+        else if (col == gui->selectedSlot)
+            draw_rect_outline(sx, sy, slotSize, slotSize, 1, 200,200,100,255);
+        else
+            draw_rect_outline(sx, sy, slotSize, slotSize, 1, 55,55,55,200);
+        if (gui->slotCount[col] > 0 && gui->slotBlock[col] != BLOCK_AIR)
+            draw_block_icon(sx+pad, sy+pad, slotSize-pad*2, gui->slotBlock[col]);
+        if (gui->slotCount[col] > 0) {
+            char buf[8]; int n = gui->slotCount[col];
+            int len=(n>=100)?3:(n>=10)?2:1;
+            buf[0]=(n/100)%10+'0'; buf[1]=(n/10)%10+'0';
+            buf[2]=n%10+'0'; buf[3]=0;
+            const char* ns=buf+(3-len); float sc=1.0f,tw=len*6*sc;
+            draw_string(sx+slotSize-tw-2+1,sy+slotSize-7*sc-2+1,sc,ns,0,0,0);
+            draw_string(sx+slotSize-tw-2,  sy+slotSize-7*sc-2,  sc,ns,255,255,255);
+        }
+    }
+
+    // ── Held item floats above cursor ─────────────────────────────────
+    if (gui->heldItemCount > 0 && gui->heldItemBlock != BLOCK_AIR) {
+        float cx, cy;
+        if (gui->invCursorY < INV_ROWS) {
+            cx = panelX + 1.0f + gui->invCursorX * slotSize;
+            cy = panelY + gui->invCursorY * slotSize;
+        } else {
+            cx = barX + 1.0f + gui->invCursorX * slotSize;
+            cy = barY + 2.0f;
+        }
+        draw_block_icon(cx+pad, cy+pad-4, slotSize-pad*2, gui->heldItemBlock);
+        char buf[8]; int n = gui->heldItemCount;
+        int len=(n>=100)?3:(n>=10)?2:1;
+        buf[0]=(n/100)%10+'0'; buf[1]=(n/10)%10+'0';
+        buf[2]=n%10+'0'; buf[3]=0;
+        const char* ns=buf+(3-len); float sc=1.0f,tw=len*6*sc;
+        draw_string(cx+slotSize-tw-2, cy+slotSize-7*sc-6, sc, ns, 255,255,100);
+    }
+
+    // ── Labels ────────────────────────────────────────────────────────
+    draw_string(panelX+2, panelY-14, 1.5f, "INVENTORY", 200,200,200);
+    // ── Crafting grid (top-right of panel) ───────────
+    float cSlot=28.0f, cGap=2.0f, arrowW=18.0f, outSz=30.0f;
+    float craftW = 2*(cSlot+cGap) + arrowW + outSz + cGap*2;
+    float craftX = panelX + panelW - craftW - 4.0f;
+    float craftY = panelY - 4.0f - 2*(cSlot+cGap) - 14.0f;
+    draw_string(craftX, craftY-12.0f, 1.5f, "CRAFT", 200,200,150);
+    for (int row=0;row<2;row++) for (int col=0;col<2;col++) {
+        int ci=row*2+col;
+        float sx=craftX+col*(cSlot+cGap), sy=craftY+row*(cSlot+cGap);
+        draw_rect(sx,sy,cSlot,cSlot,30,30,30,220);
+        int isCursor=gui->craftCursorOn&&(gui->craftCursorIdx==ci);
+        if(isCursor) draw_rect_outline(sx,sy,cSlot,cSlot,2,255,255,255,255);
+        else         draw_rect_outline(sx,sy,cSlot,cSlot,1,55,55,55,200);
+        if(gui->craftCount[ci]>0&&gui->craftGrid[ci]!=0)
+            draw_block_icon(sx+2,sy+2,cSlot-4,gui->craftGrid[ci]);
+        if(gui->craftCount[ci]>0){
+            char buf[4]; int n=gui->craftCount[ci];
+            buf[0]=(n>=10)?'0'+n/10:'0'+n; buf[1]='0'+n%10; buf[2]=0;
+            draw_string(sx+cSlot-8,sy+cSlot-9,1.0f,(n>=10)?buf:buf+1,255,255,255);
+        }
+    }
+    // Arrow
+    float arrX=craftX+2*(cSlot+cGap)+cGap, arrY=craftY+cSlot*0.5f;
+    draw_rect(arrX,arrY-2,arrowW-6,4,200,200,80,255);
+    draw_rect(arrX+arrowW-10,arrY-6,8,12,200,200,80,255);
+    // Output slot
+    float outX=arrX+arrowW, outY=craftY+(2*(cSlot+cGap)-outSz)*0.5f;
+    int outCursor=gui->craftCursorOn&&(gui->craftCursorIdx==4);
+    if(gui->craftResult!=0) draw_rect(outX,outY,outSz,outSz,50,50,20,220);
+    else                    draw_rect(outX,outY,outSz,outSz,30,30,30,220);
+    if(outCursor) draw_rect_outline(outX,outY,outSz,outSz,2,255,255,100,255);
+    else          draw_rect_outline(outX,outY,outSz,outSz,1,100,100,55,200);
+    if(gui->craftResult!=0){
+        draw_block_icon(outX+3,outY+3,outSz-6,gui->craftResult);
+        char buf[4]; int n=gui->craftResultCount;
+        buf[0]=(n>=10)?'0'+n/10:'0'+n; buf[1]='0'+n%10; buf[2]=0;
+        draw_string(outX+outSz-9,outY+outSz-10,1.0f,(n>=10)?buf:buf+1,255,255,100);
+    }
+
+    draw_string(panelX+2, panelY+panelH+4, 1.5f,
+                "A GRAB  Y MOVE  X CLOSE  LB CRAFT", 140,140,140);
+}
 
 void GUI_DrawScore(GXRModeObj* rmode, GUIState* gui) {
     // "SCORE: XXXXXX" top right corner

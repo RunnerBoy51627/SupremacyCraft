@@ -45,6 +45,14 @@ void Tex_Init() {
     free(rows);
     png_destroy_read_struct(&png, &info, NULL);
 
+#ifdef _PC
+    // PC: upload linear RGBA directly to OpenGL — no GX tile conversion
+    GX_InitTexObj(&atlasObj, rgba, w, h,
+                  GX_TF_RGBA8, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&atlasObj, GX_NEAR, GX_NEAR);
+    free(rgba);
+#else
+    // GC: convert to GX tiled RGBA8 format
     u32 gxSize = w * h * 4;
     u8* gxBuf  = (u8*)memalign(32, gxSize);
     int tileW=(w+3)/4, tileH=(h+3)/4;
@@ -67,6 +75,7 @@ void Tex_Init() {
     GX_InitTexObj(&atlasObj, gxBuf, w, h,
                   GX_TF_RGBA8, GX_CLAMP, GX_CLAMP, GX_FALSE);
     GX_InitTexObjFilterMode(&atlasObj, GX_NEAR, GX_NEAR);
+#endif
 }
 
 void Tex_BindAtlas() {

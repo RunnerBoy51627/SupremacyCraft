@@ -135,6 +135,12 @@ def main():
         'stone.png',
         'wood.png',
         'leaves.png',
+        'planks.png',
+        'crafting_top.png',
+        'crafting_side.png',
+        'tnt_side.png',
+        'tnt_top.png',
+        'tnt_bottom.png',
     ]
 
     # Start with fixed-order files that exist, then append any extras alphabetically

@@ -137,6 +137,8 @@ static void get_held_block_colors(u8 block,
             *tr=160;*tg=130;*tb=80;  *fr=120;*fg=85;*fb=45;  *rr=140;*rg=100;*rb=55; break;
         case 5: // LEAF
             *tr=50;*tg=120;*tb=35;   *fr=38;*fg=95;*fb=28;   *rr=44;*rg=108;*rb=32; break;
+        case 9: // TNT
+            *tr=180;*tg=60;*tb=60; *fr=200;*fg=30;*fb=30; *rr=160;*rg=25;*rb=25; break;
         default:
             *tr=*tg=*tb=180; *fr=*fg=*fb=140; *rr=*rg=*rb=160; break;
     }
@@ -240,9 +242,9 @@ void Anim_DrawHand(HandAnim* anim, FreeCam* cam) {
         // ── Held BLOCK ────────────────────────────────────────────────────
         // Classic Minecraft: block rotated ~-30° Y, 25° X, -25° Z
         // Sits lower-right, larger than the arm
-        float ex =  0.30f + anim->arm.pos.x + swayX + lookOffX;
-        float ey = -0.20f + anim->arm.pos.y + swayY + lookOffY;
-        float ez = -0.70f;
+        float ex =  0.38f + anim->arm.pos.x + swayX + lookOffX;
+        float ey = -0.26f + anim->arm.pos.y + swayY + lookOffY;
+        float ez = -0.90f;
 
         float rotY = -30.0f;
         float rotX =  25.0f + swayRX + lookPitchX;
@@ -264,13 +266,13 @@ void Anim_DrawHand(HandAnim* anim, FreeCam* cam) {
         // Shift so block sits in lower-right corner
         Mtx shift, final;
         guMtxIdentity(shift);
-        guMtxTransApply(shift, shift, 0.14f, -0.18f, 0.0f);
+        guMtxTransApply(shift, shift, 0.10f, -0.14f, 0.0f);
         guMtxConcat(eyeMtx, shift, final);
         GX_LoadPosMtxImm(final, GX_PNMTX0);
 
         u8 tr,tg,tb, fr,fg,fb, rr,rg,rb;
         get_held_block_colors(anim->heldBlock, &tr,&tg,&tb, &fr,&fg,&fb, &rr,&rg,&rb);
-        draw_colored_box(0.28f, 0.28f, 0.28f, tr,tg,tb, fr,fg,fb, rr,rg,rb);
+        draw_colored_box(0.22f, 0.22f, 0.22f, tr,tg,tb, fr,fg,fb, rr,rg,rb);
 
     } else {
         // ── Bare ARM ──────────────────────────────────────────────────────
