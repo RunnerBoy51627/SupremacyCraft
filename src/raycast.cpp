@@ -39,7 +39,7 @@ RayResult Raycast(World* world, guVector origin, guVector dir) {
     return result;
 }
 
-void Raycast_DrawHighlight(RayResult* ray) {
+void Raycast_DrawHighlight(RayResult* ray, float progress) {
     if (!ray->hit) return;
 
     float x = (float)ray->bx;
@@ -78,6 +78,47 @@ void Raycast_DrawHighlight(RayResult* ray) {
     GX_End();
 
     #undef LINE
+
+    // ── Crack overlay ─────────────────────────────────────────────────
+    // 8 stages matching Minecraft. Each stage darkens + shrinks the filled
+    // faces slightly so the block appears to crack inward.
+    if (progress > 0.05f) {
+        int stage = (int)(progress * 8.0f);  // 0-7
+        if (stage > 7) stage = 7;
+
+        // Alpha and darkness increase with stage
+        u8 ca = (u8)(40 + stage * 24);   // 40 .. 208
+        u8 cd = (u8)(20 + stage * 10);   // darkness tint on faces
+
+        // Draw semi-transparent dark quads over each visible face
+        // (only top, front, right — the three Minecraft shows)
+        // Push faces slightly OUTSIDE the block (like the outline epsilon)
+        float out = 0.01f + stage * 0.002f;
+        float fx0 = x - out,   fy0 = y - out,   fz0 = z - out;
+        float fx1 = x+1+out,   fy1 = y+1+out,   fz1 = z+1+out;
+
+        GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+
+        GX_Begin(GX_QUADS, GX_VTXFMT0, 12);
+        // Top face
+        GX_Position3f32(fx0,fy1,fz0); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy1,fz0); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy1,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx0,fy1,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        // Front face
+        GX_Position3f32(fx0,fy0,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy0,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy1,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx0,fy1,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        // Right face
+        GX_Position3f32(fx1,fy0,fz0); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy0,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy1,fz1); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_Position3f32(fx1,fy1,fz0); GX_Color4u8(cd,cd,cd,ca); GX_TexCoord2f32(0,0);
+        GX_End();
+
+        GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
+    }
 
     GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);

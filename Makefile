@@ -16,7 +16,7 @@ BIN2S    := $(DEVKITPRO)/tools/bin/bin2s
 AS       := $(DEVKITPPC)/bin/powerpc-eabi-as
 
 # --- Project Files ---
-TARGET  := SupremacyProject
+TARGET  := SupremacyCraft
 BUILD   := build
 SOURCES := $(wildcard src/*.cpp)
 INCLUDE := include

@@ -47,11 +47,11 @@ void GUI_Init(GUIState* gui) {
     static const u8 default_blocks[] = {
         BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE,
         BLOCK_WOOD,  BLOCK_LEAF, BLOCK_STONE,
-        BLOCK_DIRT,  BLOCK_STONE, BLOCK_WOOD
+        BLOCK_DIRT,  BLOCK_STONE
     };
     for (int i = 0; i < INV_SLOTS; i++) {
-        gui->slotBlock[i] = default_blocks[i];
-        gui->slotCount[i] = 64;
+        gui->slotBlock[i] = BLOCK_AIR;  // survival: all slots empty
+        gui->slotCount[i] = 0;
     }
 }
 

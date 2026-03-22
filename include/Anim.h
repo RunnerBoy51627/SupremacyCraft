@@ -27,10 +27,29 @@ typedef struct {
     // Solved transforms for this frame (written by Anim_Update, read by Anim_Draw)
     BoneTransform arm;    // upper arm / sleeve bone
     BoneTransform hand;   // hand / fist bone (child of arm)
+    // Bob/sway — fed from player each frame via Anim_SetBob
+    float bobPhase;        // radians, same source as player view bob
+    float bobIntensity;    // 0..1
+
+    // Camera look lag — hand trails behind when you turn
+    float lookDX;          // accumulated yaw   delta (smoothed)
+    float lookDY;          // accumulated pitch delta (smoothed)
+
+    // Currently held block (BLOCK_AIR = show arm)
+    u8    heldBlock;
 } HandAnim;
 
 // Call once to zero-initialise
 void Anim_Init(HandAnim* anim);
+
+// Feed view-bob state from the player (call before Anim_Update each frame)
+void Anim_SetBob(HandAnim* anim, float phase, float intensity);
+
+// Feed camera turn delta so the hand lags behind when you look around
+void Anim_SetLook(HandAnim* anim, float deltaYaw, float deltaPitch);
+
+// Set the currently held block (BLOCK_AIR = show bare arm)
+void Anim_SetHeldBlock(HandAnim* anim, u8 block);
 
 // Call every gameplay frame (not while paused/dead).
 // triggerSwing=1 starts a swing, triggerEquip=1 starts the equip raise.
