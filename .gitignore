@@ -1,0 +1,22 @@
+# Build artifacts
+/build/
+/*.3dsx
+/*.cia
+/*.elf
+/*.smdh
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Compiled objects
+*.o
+*.exe
+*.out
+*.bin
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
