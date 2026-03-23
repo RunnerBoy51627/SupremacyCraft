@@ -58,7 +58,10 @@ def main():
 
             atlas = os.path.join(pack_path, 'atlas.png')
 
-            # Active pack: always use the freshly built atlas
+            # Always delete stale pack atlas — regenerate with current layout
+            if os.path.exists(atlas):
+                os.remove(atlas)
+            # Active pack: use freshly built atlas
             if d == active and os.path.exists(ATLAS_PATH):
                 shutil.copy(ATLAS_PATH, atlas)
 

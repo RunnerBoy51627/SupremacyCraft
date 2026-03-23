@@ -24,6 +24,7 @@
 #include "crash_handler.h"
 #include <math.h>
 #include "tnt.h"
+#include "daynight.h"
 
 #define FIFO_SIZE (512 * 1024)   // 512KB FIFO
 static void *frameBuffer = NULL;
@@ -73,17 +74,28 @@ int main(int argc, char **argv) {
     Config_ApplyDisplay(rmode);
     Config_ApplyFog();
     GX_SetFogRangeAdj(GX_DISABLE, 0, NULL);
+    DayNight_Init();
 
     // Generate world
     // ── Block hardness (frames to break at base speed) ──────────────────
     // Matches Minecraft approximate hand-break times at 60fps
     static const float block_hardness[] = {
-        0,    // AIR
-        90,   // GRASS   ~1.5s
-        75,   // DIRT    ~1.25s
-        200,  // STONE   ~3.3s
-        150,  // WOOD    ~2.5s
-        30,   // LEAF    ~0.5s
+        0,    // 0  AIR
+        90,   // 1  GRASS   ~1.5s
+        75,   // 2  DIRT    ~1.25s
+        200,  // 3  STONE   ~3.3s
+        150,  // 4  WOOD    ~2.5s
+        30,   // 5  LEAF    ~0.5s
+        120,  // 6  PLANK   ~2.0s
+        0,    // 7  (unused)
+        120,  // 8  CRAFT   ~2.0s
+        60,   // 9  TNT     ~1.0s
+        0,    // 10 FLINT_STEEL (tool)
+        60,   // 11 SAND    ~1.0s
+        75,   // 12 GRAVEL  ~1.25s
+        0,    // 13 WATER   (not breakable)
+        -1,   // 14 BEDROCK (unbreakable)
+        0,    // 15 PICKAXE (tool)
     };
 
     // Break state
@@ -141,6 +153,7 @@ int main(int argc, char **argv) {
         // START toggles pause
         if (down & PAD_BUTTON_START)
             gui.paused = !gui.paused;
+            if (!gui.paused) { gui.inSettings = 0; gui.settingsCursor = 0; }
         // X opens/closes inventory (drop held item back on close)
         if ((down & PAD_BUTTON_X) && !gui.paused) {
             if (gui.inventoryOpen) {
@@ -467,6 +480,19 @@ int main(int argc, char **argv) {
             lastTick   = now;
         }
 
+        // ── Day/Night update ──────────────────────────────────────────────
+        if (!gui.paused) {
+            static float s_lastLight = -1.0f;
+            DayNight_Update();
+            float newLight = DayNight_GetLight();
+            // Rebuild chunks when light changes by more than 1/255
+            if (s_lastLight < 0 || fabsf(newLight - s_lastLight) > (1.0f/255.0f)) {
+                World_MarkAllDirty(&myWorld);
+                s_lastLight = newLight;
+            }
+        }
+        DayNight_ApplyGX();
+
         render_frame:
         // ── 3D World ────────────────────────────────────────────────────────
         GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
@@ -498,12 +524,21 @@ int main(int argc, char **argv) {
         int triggerSwing = 0;
 
         // ── R trigger held = break block (hold-to-mine) ──────────────────
-        if (r_now > 100 && ray.hit) {
+        if (r_now > 100 && ray.hit && !gui.paused && !gui.inventoryOpen) {
             if (ray.bx == breakX && ray.by == breakY && ray.bz == breakZ) {
                 // Same block — advance progress
                 u8 blockType = World_GetBlock(&myWorld, ray.bx, ray.by, ray.bz);
-                int hIdx = (blockType < 6) ? blockType : 1;
+                int hIdx = (blockType < 15) ? blockType : 1;
                 float hardness = block_hardness[hIdx];
+                if (hardness < 0) break; // unbreakable (bedrock)
+                // Tool speed bonus
+                u8 heldTool = gui.slotBlock[gui.selectedSlot];
+                if (heldTool == BLOCK_PICKAXE) {
+                    // Pickaxe mines stone/gravel 3x faster
+                    if (blockType == BLOCK_STONE || blockType == BLOCK_GRAVEL ||
+                        blockType == BLOCK_BEDROCK)
+                        hardness /= 3.0f;
+                }
                 if (hardness > 0) breakProgress += 1.0f / hardness;
                 if (breakProgress > 1.0f) breakProgress = 1.0f;
                 // Retrigger swing each cycle so the arm keeps swinging
@@ -543,7 +578,7 @@ int main(int argc, char **argv) {
         }
 
         // ── L trigger = place block / use tool (single press) ──────────────
-        if (l_now > 100 && l_prev <= 100 && ray.hit) {
+        if (l_now > 100 && l_prev <= 100 && ray.hit && !gui.paused && !gui.inventoryOpen) {
             u8 place = gui.slotBlock[gui.selectedSlot];
             if (gui.slotCount[gui.selectedSlot] > 0 && place != BLOCK_AIR) {
                 if (place == BLOCK_FLINT_STEEL) {
@@ -661,7 +696,33 @@ int main(int argc, char **argv) {
         VIDEO_WaitVSync();
 #endif
         // ── Between frames: update world state (safe to call GX here) ───────
-        TNT_Update(&myWorld, &myPlayer);
+        if (!gui.paused) TNT_Update(&myWorld, &myPlayer);
+
+        // ── Sand/Gravel gravity ───────────────────────────────────────────
+        if (!gui.paused) {
+            static int gravTick = 0;
+            if (++gravTick >= 4) { // check every 4 frames
+                gravTick = 0;
+                for (int cx = 0; cx < WORLD_W; cx++)
+                for (int cz = 0; cz < WORLD_D; cz++) {
+                    Chunk* ch = &myWorld.chunks[cx][cz];
+                    bool changed = false;
+                    for (int x = 0; x < CHUNK_SIZE; x++)
+                    for (int y = 1; y < CHUNK_SIZE; y++)
+                    for (int z = 0; z < CHUNK_SIZE; z++) {
+                        u8 b = ch->blocks[x][y][z];
+                        if (b != BLOCK_SAND && b != BLOCK_GRAVEL) continue;
+                        u8 below = ch->blocks[x][y-1][z];
+                        if (below == BLOCK_AIR || below == BLOCK_WATER) {
+                            ch->blocks[x][y][z]   = BLOCK_AIR;
+                            ch->blocks[x][y-1][z] = b;
+                            changed = true;
+                        }
+                    }
+                    if (changed) ch->dirty = 1;
+                }
+            }
+        }
         World_RebuildDirty(&myWorld);
     }
     game_exit:

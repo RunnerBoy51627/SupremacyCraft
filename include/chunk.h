@@ -18,6 +18,11 @@ typedef enum {
     BLOCK_CRAFT       = 8,   // crafting table
     BLOCK_TNT         = 9,
     BLOCK_FLINT_STEEL = 10,  // tool — never placed in world
+    BLOCK_SAND        = 11,  // gravity block
+    BLOCK_GRAVEL      = 12,  // gravity block
+    BLOCK_WATER       = 13,  // transparent, slows player
+    BLOCK_BEDROCK     = 14,  // unbreakable
+    BLOCK_PICKAXE     = 15,  // tool — never placed in world
 } BlockType;
 
 // ── Packed vertex: pos(12) + color(4) + uv(8) = 24 bytes ─────────────────────

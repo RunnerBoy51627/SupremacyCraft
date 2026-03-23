@@ -13,8 +13,13 @@ static inline float lerpf(float a, float b, float t) { return a+(b-a)*t; }
 static inline float clampf(float v, float lo, float hi){ return v<lo?lo:(v>hi?hi:v); }
 static inline float smoothstep(float t){ t=clampf(t,0,1); return t*t*(3-2*t); }
 
-static inline int is_tool_item(u8 block) { return block == BLOCK_FLINT_STEEL; }
-static inline int tool_tex_id(u8 block) { (void)block; return TEX_FLINT_STEEL; }
+static inline int is_tool_item(u8 block) {
+    return block == BLOCK_FLINT_STEEL || block == BLOCK_PICKAXE;
+}
+static inline int tool_tex_id(u8 block) {
+    if (block == BLOCK_PICKAXE) return TEX_PICKAXE;
+    return TEX_FLINT_STEEL;
+}
 
 // ── Box draw — flat color, no texture ────────────────────────────────────────
 static void draw_box(float w, float h, float d, u8 r, u8 g, u8 b)

@@ -13,6 +13,7 @@ typedef struct {
 void  World_Generate(World* world);
 void  World_Render(World* world);
 void  World_RebuildDirty(World* world);
+void  World_MarkAllDirty(World* world);
 u8    World_GetBlock(World* world, int wx, int wy, int wz);
 bool  World_SetBlock(World* world, int wx, int wy, int wz, u8 block);
 

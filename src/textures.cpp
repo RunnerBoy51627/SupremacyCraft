@@ -193,8 +193,9 @@ int  Tex_GetCurrentPack()          { return s_currentPack; }
 
 const TexRegion* Tex_GetRegion(int texID) {
     if (!s_cache_built) {
-        float insetU = 0.5f / (float)s_atlasW;
-        float insetV = 0.5f / (float)s_atlasH;
+        // Inset by 1.5 texels — prevents atlas UV bleeding on GX hardware
+        float insetU = 1.5f / (float)s_atlasW;
+        float insetV = 1.5f / (float)s_atlasH;
         for (int i = 0; i < TEX_COUNT; i++) {
             s_cache[i] = {
                 atlas_uvs[i][0] + insetU,

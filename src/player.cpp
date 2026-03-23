@@ -1,7 +1,5 @@
 #include "player.h"
 #include "utils.h"
-#include "sound.h"
-#include "utils.h"
 #include "chunk.h"
 #include "world.h"
 #include "camera.h"
@@ -15,7 +13,15 @@ static int world_is_solid(World* world, int bx, int by, int bz) {
     if (bx >= WORLD_W * CHUNK_SIZE || bz >= WORLD_D * CHUNK_SIZE) return 1;
     if (by < 0) return 1;  // below world = solid floor
     if (by >= CHUNK_SIZE) return 0;  // above chunk = air
-    return World_GetBlock(world, bx, by, bz) != BLOCK_AIR;
+    u8 b = World_GetBlock(world, bx, by, bz);
+    return b != BLOCK_AIR && b != BLOCK_WATER;
+}
+
+static int world_is_water(World* world, int bx, int by, int bz) {
+    if (bx < 0 || bz < 0 || by < 0) return 0;
+    if (bx >= WORLD_W * CHUNK_SIZE || bz >= WORLD_D * CHUNK_SIZE) return 0;
+    if (by >= CHUNK_SIZE) return 0;
+    return World_GetBlock(world, bx, by, bz) == BLOCK_WATER;
 }
 
 // ── AABB sweep helper ────────────────────────────────────────────────────────
@@ -48,7 +54,6 @@ void Player_Init(Player* player) {
     player->health       = PLAYER_MAX_HEALTH;
     player->air          = PLAYER_MAX_AIR;
     player->invincible   = 0;
-    player->hurtTimer    = 0;
     player->fall_speed_peak = 0.0f;
     player->dead         = 0;
 }
@@ -59,7 +64,8 @@ void Player_Respawn(Player* player, World* world) {
     int sz = (int)player->spawn.z;
     int spawnY = 2; // fallback floor
     for (int y = CHUNK_SIZE - 1; y >= 0; y--) {
-        if (World_GetBlock(world, sx, y, sz) != BLOCK_AIR) {
+        u8 sb = World_GetBlock(world, sx, y, sz);
+        if (sb != BLOCK_AIR && sb != BLOCK_WATER) {
             spawnY = y + 1;
             break;
         }
@@ -78,9 +84,7 @@ void Player_Damage(Player* player, int amount) {
     if (player->invincible > 0 || player->dead) return;
     player->health -= amount;
     if (player->health < 0) player->health = 0;
-    player->invincible = 30;
-    player->hurtTimer  = 10;
-    Sound_Play(SFX_PLAYER_HIT);
+    player->invincible = 30; // ~0.5s at 60fps
 }
 
 int Player_IsUnderwater(Player* player, World* world) {
@@ -101,7 +105,6 @@ void Player_Update(Player* player, World* world,
         return;
     }
     if (player->invincible > 0) player->invincible--;
-    if (player->hurtTimer  > 0) player->hurtTimer--;
 
     // 1. Compute movement direction from analog stick + camera yaw
     float moveX = 0.0f, moveZ = 0.0f;
@@ -120,19 +123,26 @@ void Player_Update(Player* player, World* world,
         if (sy > -0.12f && sy < 0.12f) sy = 0.0f;
         if (sx > -0.12f && sx < 0.12f) sx = 0.0f;
 
-        moveX = (fwdX * sy + rightX * sx) * g_config.moveSpeed;
-        moveZ = (fwdZ * sy + rightZ * sx) * g_config.moveSpeed;
+        moveX = (fwdX * sy + rightX * sx) * MOVE_SPEED;
+        moveZ = (fwdZ * sy + rightZ * sx) * MOVE_SPEED;
     }
 
+    // Check if player is in water
+    int px = (int)player->pos.x, py = (int)player->pos.y, pz = (int)player->pos.z;
+    int inWater = world_is_water(world, px, py, pz) ||
+                  world_is_water(world, px, py+1, pz);
+    if (inWater) { moveX *= 0.4f; moveZ *= 0.4f; }
+
     // 2. Jumping
-    if (jumpPressed && player->grounded) {
-        player->velocity.y = JUMP_FORCE;
+    if (jumpPressed && (player->grounded || inWater)) {
+        player->velocity.y = inWater ? 0.08f : JUMP_FORCE;
         player->grounded   = 0;
     }
 
     // 3. Gravity
-    player->velocity.y += GRAVITY;
-    if (player->velocity.y < -0.8f) player->velocity.y = -0.8f;
+    player->velocity.y += inWater ? GRAVITY * 0.15f : GRAVITY;
+    float maxFall = inWater ? -0.1f : -0.8f;
+    if (player->velocity.y < maxFall) player->velocity.y = maxFall;
     if (player->velocity.y < player->fall_speed_peak)
         player->fall_speed_peak = player->velocity.y;
 
@@ -155,9 +165,9 @@ void Player_Update(Player* player, World* world,
         player->grounded = 0;
     } else {
         if (player->velocity.y < 0) {
-            // Fall damage
+            // Fall damage — not in water
             float speed = -player->fall_speed_peak;
-            if (speed > FALL_DAMAGE_THRESHOLD) {
+            if (!inWater && speed > FALL_DAMAGE_THRESHOLD) {
                 int dmg = (int)((speed - FALL_DAMAGE_THRESHOLD) * FALL_DAMAGE_MULT);
                 if (dmg > 0) Player_Damage(player, dmg);
             }

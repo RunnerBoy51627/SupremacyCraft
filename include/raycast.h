@@ -16,8 +16,7 @@ typedef struct {
 // Cast a ray from origin in direction, return hit info
 RayResult Raycast(World* world, guVector origin, guVector dir);
 
-// Draw a wireframe box around the targeted block.
-// progress 0.0=no crack, 1.0=fully broken (draws crack overlay stages)
-void Raycast_DrawHighlight(RayResult* ray, float progress);
+// Draw a wireframe box around the targeted block
+void Raycast_DrawHighlight(RayResult* ray, float breakProgress);
 
 #endif

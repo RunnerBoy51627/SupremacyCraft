@@ -65,16 +65,24 @@ void GUI_Init(GUIState* gui) {
     gui->pauseCursor  = 0;
     gui->score        = 0;
 
-    // Default inventory: one of each block type
-    static const u8 default_blocks[] = {
-        BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE,
-        BLOCK_WOOD,  BLOCK_LEAF, BLOCK_STONE,
-        BLOCK_DIRT,  BLOCK_STONE
-    };
+    // Start with empty hotbar and inventory
     for (int i = 0; i < INV_SLOTS; i++) {
         gui->slotBlock[i] = BLOCK_AIR;
         gui->slotCount[i] = 0;
     }
+    // Blocks in main inventory (slots 9+)
+    static const u8 start_blocks[] = {
+        BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_WOOD,
+        BLOCK_LEAF,  BLOCK_PLANK, BLOCK_SAND, BLOCK_GRAVEL
+    };
+    for (int i = 0; i < 8; i++) {
+        gui->slotBlock[HOTBAR_SLOTS + i] = start_blocks[i];
+        gui->slotCount[HOTBAR_SLOTS + i] = 64;
+    }
+    // Tools
+    gui->slotBlock[HOTBAR_SLOTS + 8]  = BLOCK_PICKAXE;     gui->slotCount[HOTBAR_SLOTS + 8]  = 1;
+    gui->slotBlock[HOTBAR_SLOTS + 9]  = BLOCK_FLINT_STEEL; gui->slotCount[HOTBAR_SLOTS + 9]  = 1;
+    gui->slotBlock[HOTBAR_SLOTS + 10] = BLOCK_TNT;         gui->slotCount[HOTBAR_SLOTS + 10] = 32;
     gui->inventoryOpen  = 0;
     gui->invCursorX     = 0;
     gui->invCursorY     = 0;

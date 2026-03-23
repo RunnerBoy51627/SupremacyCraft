@@ -2,14 +2,11 @@
 #pragma once
 #include "platform_types.h"
 
-#define PACK_COUNT 3
+#define PACK_COUNT 2
 
 extern const u8  atlas_png_default[];
 extern const u32 atlas_png_default_size;
 #define atlas_tile_size_default 16
-extern const u8  atlas_png_template[];
-extern const u32 atlas_png_template_size;
-#define atlas_tile_size_template 16
 extern const u8  atlas_png_test[];
 extern const u32 atlas_png_test_size;
 #define atlas_tile_size_test 64

@@ -39,6 +39,11 @@ FIXED_ORDER = [
     'tnt_top.png',
     'tnt_bottom.png',
     'flint_steel.png',
+    'sand.png',
+    'gravel.png',
+    'water.png',
+    'bedrock.png',
+    'pickaxe.png',
 ]
 
 # ── Alias / fallback map ────────────────────────────────────────────────────
@@ -136,17 +141,19 @@ def write_png(path, width, height, pixels):
     def chunk(ctype, data):
         c = ctype.encode() + data
         return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xFFFFFFFF)
-    raw = b''
+    # Fast bytearray-based raw data construction
+    raw = bytearray(height * (1 + width * 4))
+    idx = 0
     for y in range(height):
-        raw += b'\x00'
+        raw[idx] = 0; idx += 1
         for x in range(width):
             r,g,b,a = pixels[y*width+x]
-            raw += bytes([r,g,b,a])
+            raw[idx]=r; raw[idx+1]=g; raw[idx+2]=b; raw[idx+3]=a; idx+=4
     ihdr = struct.pack('>IIBBBBB', width, height, 8, 6, 0, 0, 0)
     with open(path, 'wb') as f:
         f.write(b'\x89PNG\r\n\x1a\n')
         f.write(chunk('IHDR', ihdr))
-        f.write(chunk('IDAT', zlib.compress(raw, 9)))
+        f.write(chunk('IDAT', zlib.compress(bytes(raw), 1)))
         f.write(chunk('IEND', b''))
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -251,9 +258,20 @@ def main():
         sys.exit(1)
 
     texture_dir = os.path.join(pack_path, 'textures')
+    # Fall back to data/textures/ if pack textures folder is missing or empty
+    legacy_dir = os.path.join(ROOT, 'data', 'textures')
     if not os.path.isdir(texture_dir):
-        print(f"No textures/ folder in pack '{pack_name}'")
-        sys.exit(1)
+        os.makedirs(texture_dir, exist_ok=True)
+    # If pack folder has fewer than 3 PNGs, sync from data/textures/
+    pack_pngs = [f for f in os.listdir(texture_dir)
+                 if f.endswith('.png') and f != 'atlas.png']
+    if len(pack_pngs) < 3 and os.path.isdir(legacy_dir):
+        import shutil
+        for f in os.listdir(legacy_dir):
+            if f.endswith('.png') and f != 'atlas.png':
+                shutil.copy(os.path.join(legacy_dir, f),
+                            os.path.join(texture_dir, f))
+        print(f"  synced textures from data/textures/ to pack folder")
 
     print(f"Generating texture atlas...")
     print(f"Pack: {meta.get('name', pack_name)} ({TILE_SIZE}x{TILE_SIZE}px tiles)")
@@ -294,11 +312,9 @@ def main():
     while cols * rows < count:
         rows <<= 1
 
-    atlas_w = cols * TILE_SIZE
-    atlas_h = rows * TILE_SIZE
-    # Atlas must be power-of-2 for GX
-    atlas_w = next_pow2(atlas_w)
-    atlas_h = next_pow2(atlas_h)
+    # Atlas must be power-of-2 for GX — no padding, UV inset handles bleeding
+    atlas_w = next_pow2(cols * TILE_SIZE)
+    atlas_h = next_pow2(rows * TILE_SIZE)
     atlas_pixels = [(0,0,0,0)] * (atlas_w * atlas_h)
 
     print(f"Atlas: {atlas_w}x{atlas_h} ({cols}x{rows} grid, {TILE_SIZE}px tiles)")
@@ -345,17 +361,19 @@ def main():
             w, h = TILE_SIZE, TILE_SIZE
 
         # Paste into atlas
-        for py in range(TILE_SIZE):
-            for px in range(TILE_SIZE):
-                ax = col * TILE_SIZE + px
-                ay = row * TILE_SIZE + py
-                atlas_pixels[ay * atlas_w + ax] = pixels[py * TILE_SIZE + px]
+        T = TILE_SIZE
+        ox = col * T
+        oy = row * T
+        for py in range(T):
+            base_atlas = (oy + py) * atlas_w + ox
+            base_tile  = py * T
+            atlas_pixels[base_atlas:base_atlas+T] = pixels[base_tile:base_tile+T]
 
         regions[os.path.splitext(filename)[0]] = (
-            col * TILE_SIZE / atlas_w,
-            row * TILE_SIZE / atlas_h,
-            (col * TILE_SIZE + TILE_SIZE) / atlas_w,
-            (row * TILE_SIZE + TILE_SIZE) / atlas_h,
+            ox / atlas_w,
+            oy / atlas_h,
+            (ox + T) / atlas_w,
+            (oy + T) / atlas_h,
         )
         print(f"  [{col},{row}] {name_to_define(filename)}")
 
