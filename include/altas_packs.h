@@ -8,15 +8,7 @@ extern const u8  atlas_png_default[];
 extern const u32 atlas_png_default_size;
 #define atlas_tile_size_default 16
 
-static const char* g_pack_names[PACK_COUNT] = {
-    "default",
-};
-static const u8* g_pack_atlases[PACK_COUNT] = {
-    atlas_png_default,
-};
-static const u32 g_pack_sizes[PACK_COUNT] = {
-    atlas_png_default_size,
-};
-static const int g_pack_tile_sizes[PACK_COUNT] = {
-    atlas_tile_size_default,
-};
+extern const char* const g_pack_names[PACK_COUNT];
+extern const u8*   const g_pack_atlases[PACK_COUNT];
+extern const u32   g_pack_sizes[PACK_COUNT];
+extern const int   g_pack_tile_sizes[PACK_COUNT];

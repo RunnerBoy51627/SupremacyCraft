@@ -11,7 +11,7 @@ TARGET    := My3DSCraft
 BUILD     := build/$(PLATFORM)
 SHADERS   := shaders/
 
-GAME_SRCS := $(wildcard src/*.cpp)
+GAME_SRCS := $(filter-out src/atlas_packs_data.cpp, $(wildcard src/*.cpp))
 ATLAS     := data/textures/atlas.png
 
 # Default goal must be declared before any file rules
@@ -83,13 +83,14 @@ $(ATLAS_C): $(ATLAS_H)
 	@python3 tools/embed_packs.py $(BUILD)/data
 
 $(ATLAS_OBJ): $(ATLAS_C)
-	$(CXX) -c $(ATLAS_C) -o $(ATLAS_OBJ)
+	$(CXX) -c $(ATLAS_C) -Iinclude -Isrc/platform/pc -o $(ATLAS_OBJ)
 
 $(BUILD)/$(TARGET): $(SOURCES) $(ATLAS_OBJ)
 	@mkdir -p $(BUILD)
 	@echo "Compiling PC..."
 	$(CXX) $(CXXFLAGS) -O1 src/itemdrop.cpp -c -o $(BUILD)/itemdrop.o
-	$(CXX) $(CXXFLAGS) $(filter-out src/itemdrop.cpp,$(SOURCES)) $(ATLAS_OBJ) $(BUILD)/itemdrop.o -o $@ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -O1 src/gui.cpp -c -o $(BUILD)/gui.o
+	$(CXX) $(CXXFLAGS) $(filter-out src/itemdrop.cpp src/gui.cpp,$(SOURCES)) $(ATLAS_OBJ) $(BUILD)/itemdrop.o $(BUILD)/gui.o -o $@ $(LDFLAGS)
 	@cp -r $(SHADERS) $(BUILD)/shaders
 	@echo "Done: $@"
 
@@ -128,13 +129,21 @@ PACK_OBJS := $(wildcard $(BUILD)/data/packs/*.o)
 SOUND_RAWS := $(wildcard data/sounds/*.raw)
 SOUND_OBJS := $(patsubst data/sounds/%.raw,$(BUILD)/data/sounds/%.raw.o,$(SOUND_RAWS))
 
-all: $(ATLAS_H) include/atlas_packs.h $(DOL)
+all: $(ATLAS_H)
+	@$(MAKE) --no-print-directory _build_after_packs
+
+.PHONY: _build_after_packs
+_build_after_packs: atlas_packs $(DOL)
 	@echo "GC build complete: $(DOL)"
 
-include/atlas_packs.h: $(ATLAS_H)
+.PHONY: atlas_packs
+atlas_packs: $(ATLAS_H)
 	@mkdir -p $(BUILD)/data/packs
 	@echo "Generating atlas_packs.h..."
 	@python3 tools/embed_packs_gc.py $(BUILD)/data $(BIN2S) $(AS)
+
+include/atlas_packs.h: atlas_packs
+	@touch include/atlas_packs.h
 
 # Convert sounds then re-invoke make so SOUND_RAWS wildcard picks up new .raw files
 .PHONY: convert_sounds
@@ -147,11 +156,15 @@ $(DOL): $(ELF)
 	$(ELF2DOL) $(ELF) $(DOL)
 	@echo "Done: $@"
 
-$(ELF): $(SOURCES) $(SOUND_OBJS)
+$(ELF): $(SOURCES) include/atlas_packs.h $(SOUND_OBJS)
 	@mkdir -p $(BUILD)
 	@echo "Compiling GC..."
-	$(eval PACK_OBJS := $(wildcard $(BUILD)/data/packs/*.o))
-	$(CXX) $(CXXFLAGS) $(SOURCES) $(PACK_OBJS) $(SOUND_OBJS) -o $(ELF) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -O1 src/gui.cpp -c -o $(BUILD)/gui.o
+	$(CXX) $(CXXFLAGS) -O1 src/main.cpp -c -o $(BUILD)/main.o
+	$(CXX) $(CXXFLAGS) $(filter-out src/gui.cpp src/main.cpp, $(SOURCES)) src/atlas_packs_data.cpp \
+	    $(BUILD)/gui.o $(BUILD)/main.o \
+	    $(wildcard $(BUILD)/data/packs/atlas_png_*.o) \
+	    $(SOUND_OBJS) -o $(ELF) $(LDFLAGS)
 
 $(BUILD)/data/sounds/%.raw.o: data/sounds/%.raw
 	@mkdir -p $(dir $@)

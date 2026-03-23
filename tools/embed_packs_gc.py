@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-embed_packs.py - Generates a C++ file embedding all resource pack atlases.
-Each pack gets a symbol: atlas_png_<packname>[] and atlas_png_<packname>_size.
-Also generates atlas_png[] pointing to the active pack.
-Usage: python3 tools/embed_packs.py <build_data_dir>
+embed_packs_gc.py - Embeds all resource pack atlases for GC using bin2s.
+Run by: make (GC build only)
+Generates:
+  - build/gc/data/packs/atlas_png_<name>.o  (one per pack)
+  - include/atlas_packs.h                   (extern declarations)
+  - src/atlas_packs_data.cpp                (array definitions, overwrites existing)
 """
-import os, sys, json
+import os, sys, json, subprocess, shutil
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT       = os.path.join(SCRIPT_DIR, '..')
-PACKS_DIR  = os.path.join(ROOT, 'data', 'resource_packs')
-ACTIVE_F   = os.path.join(ROOT, 'data', 'active_pack.txt')
-ATLAS_PATH = os.path.join(ROOT, 'data', 'textures', 'atlas.png')
+SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
+ROOT        = os.path.join(SCRIPT_DIR, '..')
+PACKS_DIR   = os.path.join(ROOT, 'data', 'resource_packs')
+ACTIVE_F    = os.path.join(ROOT, 'data', 'active_pack.txt')
+ATLAS_PATH  = os.path.join(ROOT, 'data', 'textures', 'atlas.png')
+INCLUDE_DIR = os.path.join(ROOT, 'include')
+SRC_DIR     = os.path.join(ROOT, 'src')
 
 def get_active():
     if os.path.exists(ACTIVE_F):
@@ -24,114 +28,144 @@ def safe_sym(name):
     return name.replace('-','_').replace(' ','_').replace('.','_')
 
 def main():
-    out_dir = sys.argv[1] if len(sys.argv) > 1 else 'build/pc/data'
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir   = sys.argv[1] if len(sys.argv) > 1 else 'build/gc/data'
+    bin2s     = sys.argv[2] if len(sys.argv) > 2 else 'bin2s'
+    assembler = sys.argv[3] if len(sys.argv) > 3 else 'powerpc-eabi-as'
+
+    packs_out = os.path.join(out_dir, 'packs')
+    tmp_dir   = os.path.join(packs_out, 'tmp')
+    os.makedirs(packs_out, exist_ok=True)
+    os.makedirs(tmp_dir,   exist_ok=True)
+    os.makedirs(INCLUDE_DIR, exist_ok=True)
+    os.makedirs(SRC_DIR,     exist_ok=True)
 
     active = get_active()
-    packs = []
+    packs  = []  # list of (name, atlas_path, tile_size)
 
+    # Collect packs
     if os.path.isdir(PACKS_DIR):
         for d in sorted(os.listdir(PACKS_DIR)):
             pack_path = os.path.join(PACKS_DIR, d)
             if not os.path.isdir(pack_path): continue
-            atlas = os.path.join(pack_path, 'atlas.png')
+
+            tile_size = 16
             meta_path = os.path.join(pack_path, 'pack.json')
-            meta = {}
             if os.path.exists(meta_path):
-                with open(meta_path) as f:
-                    try: meta = json.load(f)
-                    except: pass
+                try:
+                    with open(meta_path) as f:
+                        tile_size = int(json.load(f).get('tile_size', 16))
+                except: pass
 
-            # Generate atlas for this pack if missing
-            if not os.path.exists(atlas):
-                print(f"  generating atlas for pack '{d}'...")
-                import subprocess
-                subprocess.run([sys.executable,
-                    os.path.join(os.path.dirname(ATLAS_PATH), '..', '..',
-                                 'tools', 'gen_atlas.py'), '--pack', d],
-                    check=False)
-                # gen_atlas writes to data/textures/atlas.png — copy to pack
-                if os.path.exists(ATLAS_PATH):
-                    import shutil
-                    shutil.copy(ATLAS_PATH, atlas)
-                    # Restore active pack atlas
-                    if d != active:
-                        subprocess.run([sys.executable,
-                            os.path.join(os.path.dirname(ATLAS_PATH), '..', '..',
-                                         'tools', 'gen_atlas.py')],
-                            check=False)
+            atlas = os.path.join(pack_path, 'atlas.png')
 
-            # For active pack, always use the freshly generated atlas
+            # Active pack: always use the freshly built atlas
             if d == active and os.path.exists(ATLAS_PATH):
-                import shutil
                 shutil.copy(ATLAS_PATH, atlas)
 
+            # Non-active pack: generate if missing
+            if not os.path.exists(atlas):
+                print(f"  generating atlas for '{d}'...")
+                subprocess.run([sys.executable,
+                    os.path.join(SCRIPT_DIR, 'gen_atlas.py'), '--pack', d],
+                    check=False)
+                if os.path.exists(ATLAS_PATH):
+                    shutil.copy(ATLAS_PATH, atlas)
+                    # Regenerate active pack atlas
+                    if d != active:
+                        subprocess.run([sys.executable,
+                            os.path.join(SCRIPT_DIR, 'gen_atlas.py')],
+                            check=False)
+
             if os.path.exists(atlas):
-                packs.append((d, atlas, meta))
+                packs.append((d, atlas, tile_size))
 
-    # Fallback — just embed main atlas as 'default'
-    if not packs and os.path.exists(ATLAS_PATH):
-        packs = [('default', ATLAS_PATH, {'tile_size': 16})]
+    # Fallback
+    if not packs:
+        if os.path.exists(ATLAS_PATH):
+            packs = [('default', ATLAS_PATH, 16)]
+        else:
+            print("ERROR: no atlas found"); sys.exit(1)
 
-    out_cpp = os.path.join(out_dir, 'atlas_png.cpp')
-    out_h   = os.path.join(ROOT, 'include', 'atlas_packs.h')
+    obj_files = []
 
-    with open(out_cpp, 'w') as f:
-        f.write('// AUTO-GENERATED by tools/embed_packs.py\n')
-        f.write('#include <stddef.h>\n\n')
+    for pack_name, atlas_path, tile_size in packs:
+        sym    = safe_sym(pack_name)
+        # Name the temp file atlas_png_<sym>.png so bin2s generates
+        # symbol atlas_png_<sym> directly — no string replacement needed
+        # Name temp file without extension so bin2s symbol = atlas_png_<sym>
+        # (bin2s appends _<ext> if there's an extension)
+        tmp_png = os.path.join(tmp_dir, f'atlas_png_{sym}')
+        s_file  = os.path.join(packs_out, f'atlas_png_{sym}.s')
+        o_file  = os.path.join(packs_out, f'atlas_png_{sym}.o')
 
-        for pack_name, atlas_path, meta in packs:
-            sym = safe_sym(pack_name)
-            tile_size = meta.get('tile_size', 16)
-            data = open(atlas_path, 'rb').read()
-            f.write(f'// Pack: {pack_name} (tile_size={tile_size})\n')
-            f.write(f'const unsigned char atlas_png_{sym}[] = {{\n')
-            for i in range(0, len(data), 16):
-                chunk = data[i:i+16]
-                f.write('    ' + ', '.join(f'0x{b:02x}' for b in chunk) + ',\n')
-            f.write(f'}};\n')
-            f.write(f'const unsigned int atlas_png_{sym}_size = {len(data)};\n')
-            f.write(f'const int atlas_tile_size_{sym} = {tile_size};\n\n')
+        shutil.copy(atlas_path, tmp_png)
 
-        # Active pack aliases
-        active_sym = safe_sym(active) if any(p[0]==active for p in packs) else safe_sym(packs[0][0])
-        f.write(f'// Active pack: {active}\n')
-        f.write(f'const unsigned char* atlas_png = atlas_png_{active_sym};\n')
-        f.write(f'const unsigned int atlas_png_size = atlas_png_{active_sym}_size;\n')
-        f.write(f'int g_atlas_tile_size = atlas_tile_size_{active_sym};\n\n')
+        print(f"  embedding '{pack_name}' ({tile_size}px) -> atlas_png_{sym}[]")
+        with open(s_file, 'w') as sf:
+            r = subprocess.run([bin2s, tmp_png], stdout=sf)
+        os.remove(tmp_png)
 
-    with open(out_h, 'w') as f:
+        if r.returncode != 0:
+            print(f"  ERROR: bin2s failed for '{pack_name}'"); continue
+
+        r2 = subprocess.run([assembler, s_file, '-o', o_file])
+        if r2.returncode != 0:
+            print(f"  ERROR: assembler failed for '{pack_name}'"); continue
+
+        obj_files.append(o_file)
+
+    # ── Write include/atlas_packs.h ──────────────────────────────────────────
+    h_path = os.path.join(INCLUDE_DIR, 'atlas_packs.h')
+    with open(h_path, 'w') as f:
+        f.write('// AUTO-GENERATED by tools/embed_packs_gc.py -- do not edit\n')
         f.write('#pragma once\n')
-        f.write('// AUTO-GENERATED by tools/embed_packs.py\n\n')
+        f.write('#include "platform_types.h"\n\n')
         f.write(f'#define PACK_COUNT {len(packs)}\n\n')
-        for pack_name, _, meta in packs:
-            sym = safe_sym(pack_name)
-            f.write(f'extern const unsigned char atlas_png_{sym}[];\n')
-            f.write(f'extern const unsigned int  atlas_png_{sym}_size;\n')
-            f.write(f'extern const int           atlas_tile_size_{sym};\n')
-        f.write('\n// Pack name table\n')
-        f.write(f'static const char* g_pack_names[PACK_COUNT] = {{\n')
-        for pack_name, _, _ in packs:
-            f.write(f'    "{pack_name}",\n')
+        for name, _, ts in packs:
+            sym = safe_sym(name)
+            f.write(f'extern const u8  atlas_png_{sym}[];\n')
+            f.write(f'extern const u32 atlas_png_{sym}_size;\n')
+            f.write(f'#define atlas_tile_size_{sym} {ts}\n')
+        f.write('\n')
+        f.write('extern const char* const g_pack_names[PACK_COUNT];\n')
+        f.write('extern const u8*   const g_pack_atlases[PACK_COUNT];\n')
+        f.write('extern const u32   g_pack_sizes[PACK_COUNT];\n')
+        f.write('extern const int   g_pack_tile_sizes[PACK_COUNT];\n')
+
+    # ── Write src/atlas_packs_data.cpp (overwrite) ───────────────────────────
+    cpp_path = os.path.join(SRC_DIR, 'atlas_packs_data.cpp')
+    with open(cpp_path, 'w') as f:
+        f.write('// AUTO-GENERATED by tools/embed_packs_gc.py -- do not edit\n')
+        f.write('#include "platform_types.h"\n')
+        f.write('#include "atlas_packs.h"\n\n')
+        # Use individual string vars to avoid dynamic init
+        for name, _, _ in packs:
+            sym2 = safe_sym(name)
+            f.write(f'static const char s_packname_{sym2}[] = "{name}";\n')
+        f.write(f'const char* const g_pack_names[PACK_COUNT] = {{\n')
+        for name, _, _ in packs:
+            sym2 = safe_sym(name)
+            f.write(f'    s_packname_{sym2},\n')
         f.write('};\n')
-        f.write(f'static const unsigned char* g_pack_atlases[PACK_COUNT] = {{\n')
-        for pack_name, _, _ in packs:
-            sym = safe_sym(pack_name)
+        f.write(f'const u8* const g_pack_atlases[PACK_COUNT] = {{\n')
+        for name, _, _ in packs:
+            sym = safe_sym(name)
             f.write(f'    atlas_png_{sym},\n')
         f.write('};\n')
-        f.write(f'static const unsigned int g_pack_sizes[PACK_COUNT] = {{\n')
-        for pack_name, _, _ in packs:
-            sym = safe_sym(pack_name)
+        f.write(f'const u32 g_pack_sizes[PACK_COUNT] = {{\n')
+        for name, _, _ in packs:
+            sym = safe_sym(name)
             f.write(f'    atlas_png_{sym}_size,\n')
         f.write('};\n')
-        f.write(f'static const int g_pack_tile_sizes[PACK_COUNT] = {{\n')
-        for pack_name, _, _ in packs:
-            sym = safe_sym(pack_name)
+        f.write(f'const int g_pack_tile_sizes[PACK_COUNT] = {{\n')
+        for name, _, _ in packs:
+            sym = safe_sym(name)
             f.write(f'    atlas_tile_size_{sym},\n')
         f.write('};\n')
 
-    print(f"Embedded {len(packs)} pack(s): {[p[0] for p in packs]}")
-    print(f"Active: {active}")
+    print(f'Embedded {len(packs)} pack(s): {[p[0] for p in packs]}')
+    print(f'Active: {active}')
+    print('PACK_OBJS: ' + ' '.join(obj_files))
 
 if __name__ == '__main__':
     main()

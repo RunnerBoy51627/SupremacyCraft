@@ -530,7 +530,7 @@ void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui) {
         { "WIDESCREEN",  (float)g_config.widescreen,  0.0f,  1.0f,   1.0f  },
     };
 
-    for (int i = 0; i < SETTING_ITEM_COUNT; i++) {
+    for (int i = 0; i < SETTING_ITEM_RESOURCE_PACK; i++) {
         float itemY = panelY + 56.0f + i * 34.0f;
         float scale = 1.5f;
         u8 tr = (i == gui->settingsCursor) ? 255 : 180;
@@ -574,6 +574,7 @@ void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui) {
         }
     }
 
+
     // Resource pack selector
     {
         int i = SETTING_ITEM_RESOURCE_PACK;
@@ -586,9 +587,9 @@ void GUI_DrawSettings(GXRModeObj* rmode, GUIState* gui) {
             draw_rect(panelX+8, itemY-4, panelW-16, 7*scale+18, 80,80,180,160);
         draw_string(panelX + 16.0f, itemY, scale, "RESOURCE PACK", tr2, tg2, tb2);
         const char* packName = Tex_GetPackName(Tex_GetCurrentPack());
+        if (!packName) packName = "default";
         float vw = __builtin_strlen(packName) * 6.0f * scale;
         draw_string(panelX + panelW - vw - 16.0f, itemY, scale, packName, tr2, tg2, tb2);
-        // Left/right arrows hint
         draw_string(panelX + 16.0f, itemY + 12.0f, 1.2f, "< >", 120, 120, 120);
     }
 
